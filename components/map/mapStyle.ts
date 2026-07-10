@@ -266,6 +266,14 @@ function tuneLabels(style: StyleSpecification): void {
   const other = layers.find((l) => l.id === "label_other");
   if (other) other.minzoom = 7;
 
+  // Street/boulevard NAME labels aren't clickable here and clutter when zoomed
+  // out, so hold them until you're zoomed in to street level.
+  const STREET_NAME_FLOOR = 15;
+  for (const id of ["highway-name-major", "highway-name-minor", "highway-name-path"]) {
+    const l = layers.find((x) => x.id === id);
+    if (l && (l.minzoom ?? 0) < STREET_NAME_FLOOR) l.minzoom = STREET_NAME_FLOOR;
+  }
+
   if (!layers.some((l) => l.id === "park_label")) {
     const parkLabel = {
       id: "park_label",
