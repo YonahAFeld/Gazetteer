@@ -2,10 +2,10 @@
 
 import dynamic from "next/dynamic";
 
-const MapCanvas = dynamic(() => import("./MapCanvas"), {
+const MapView = dynamic(() => import("./MapView"), {
   ssr: false,
 });
 
 export default function MapLoader() {
-  return <MapCanvas />;
+  return <MapView />;
 }

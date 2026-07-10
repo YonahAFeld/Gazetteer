@@ -9,7 +9,8 @@
     "start": "next start",
     "lint": "eslint",
     "rls-check": "tsx --env-file=.env.local scripts/rls-check.ts",
-    "db:push": "supabase db push"
+    "db:push": "supabase db push",
+    "test": "node --import tsx --test 'lib/**/*.test.ts'"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.0",

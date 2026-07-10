@@ -57,13 +57,39 @@ Browser (MapLibre canvas + React UI)
   future base style uses expression-valued colors, the transform leaves them
   untouched rather than corrupting them.
 
-### OSM feature identity from tiles (Phase 2 — to be filled in)
+### OSM feature identity from tiles (verified — Phase 2)
 
-MapLibre's `queryRenderedFeatures` will expose OSM IDs from the OpenFreeMap
-(OpenMapTiles schema) vector tiles. The exact feature property name(s) carrying
-`osm_type`/`osm_id` must be verified against the live tile schema and documented
-here before the hydration pipeline keys off them (spec §4.1). **TODO: document
-the property name once Phase 2 begins.**
+The spec (§4.1) assumed OpenFreeMap tiles expose OSM ids as a feature *property*.
+They do not. Verified by decoding a live tile (z14 over Encino, LA) and
+cross-checking against Overpass:
+
+- The OpenMapTiles-schema layers (`poi`, `place`, `boundary`, `building`, …) do
+  **not** carry `osm_id` in their properties. Only the `water` layer has an `id`.
+- OpenFreeMap is generated with **Planetiler**, which puts an encoded OSM id in
+  the MVT **feature id** (`feature.id`, the top-level id — not a property).
+- The encoding is `feature.id = osm_id * 10 + typeCode`. The numeric OSM id is
+  therefore `Math.floor(feature.id / 10)` and this is reliable (verified:
+  `1509624051 → node 150962405 = "Encino"`).
+- The trailing `typeCode` is **not** a reliable node/way/relation discriminator
+  (observed both a hospital-way and a boundary-way with different trailing
+  digits). So we do not decode the type from it.
+
+**Resolution strategy (`lib/geo/overpass.ts`):** on tap, the client reads
+`feature.id`, `feature.properties.name`, the source layer, and the tap lng/lat
+via `queryRenderedFeatures`, and posts them to `/api/geo/hydrate`. The server
+computes `osmId = floor(featureId / 10)` and asks Overpass for
+`(node(osmId); way(osmId); relation(osmId)); out tags center;`, then picks the
+element that carries tags (disambiguating by name when more than one matches).
+That yields the canonical `osm_type + osm_id` — identity stays sacred (§2.1) —
+without trusting the fragile type code. The tapped `name`/lng/lat also drive a
+spatial-by-name fallback if the id lookup misses.
+
+Note the layer a feature comes from: **place labels** (cities, countries,
+neighborhoods) resolve to OSM place **nodes** (points, no polygon); the
+**boundary** layer resolves to boundary **ways** (segments). Neither is the full
+admin-area relation+polygon. Phase 2 stores the point identity + kind; resolving
+an admin area to its relation and multipolygon (for the surveyed-parcel outline
+and containment) is Phase 3 work.
 
 ## Data model
 
