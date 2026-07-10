@@ -110,8 +110,44 @@ export default function MapCanvas({ selected, onTapFeature, onLongPress }: MapCa
       map.addControl(new maplibregl.GeolocateControl({}), "bottom-right");
       mapRef.current = map;
 
+      // Stretchable rounded-rect chip drawn behind clickable place labels
+      // (mapStyle.ts references it as "place-pill" via icon-text-fit).
+      const addPill = () => {
+        if (map.hasImage("place-pill")) return;
+        const pr = 2;
+        const S = 28; // logical canvas size; the rect is inset to leave shadow room
+        const c = document.createElement("canvas");
+        c.width = S * pr;
+        c.height = S * pr;
+        const ctx = c.getContext("2d");
+        if (!ctx) return;
+        ctx.scale(pr, pr);
+        // White capsule with a soft drop shadow so it lifts off the map,
+        // Airbnb-price-pill style. Radius = half height → fully rounded ends.
+        ctx.beginPath();
+        ctx.roundRect(5, 5, 18, 16, 8);
+        ctx.shadowColor = "rgba(26,26,24,0.28)";
+        ctx.shadowBlur = 4;
+        ctx.shadowOffsetY = 1.5;
+        ctx.fillStyle = "#FFFFFF";
+        ctx.fill();
+        const img = ctx.getImageData(0, 0, S * pr, S * pr);
+        // Stretch only the flat center; the rounded caps stay fixed (true 9-slice
+        // capsule). Text sits in `content`, which grows with the label.
+        map.addImage("place-pill", img, {
+          pixelRatio: pr,
+          stretchX: [[14 * pr, 15 * pr]],
+          stretchY: [[12 * pr, 14 * pr]],
+          content: [13 * pr, 7 * pr, 15 * pr, 19 * pr],
+        });
+      };
+      map.on("styleimagemissing", (e) => {
+        if (e.id === "place-pill") addPill();
+      });
+
       map.on("load", () => {
         readyRef.current = true;
+        addPill();
 
         // Selection layers: a subtle magenta "surveyed parcel" outline for places
         // with a boundary, and a magenta marker for the selected point.

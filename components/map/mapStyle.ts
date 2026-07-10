@@ -273,7 +273,51 @@ export function surveyStyle(style: StyleSpecification): StyleSpecification {
   }
 
   tuneLabels(next);
+  applyChips(next);
   return next;
+}
+
+/**
+ * Chip treatment: render container-place labels (cities, towns, villages,
+ * neighborhoods, parks) as tappable rounded chips via `icon-text-fit` behind a
+ * stretchable "place-pill" image (added at runtime in MapCanvas). This makes it
+ * clear at rest that these names are interactive. Countries/states and POIs keep
+ * their own treatments. City/town chips only kick in at z8+ so the world view
+ * stays clean.
+ */
+function applyChips(style: StyleSpecification): void {
+  const chips: Array<{ id: string; floor?: number; bold?: boolean }> = [
+    { id: "label_city", floor: 8, bold: true },
+    { id: "label_town", floor: 8, bold: true },
+    { id: "label_village", bold: true },
+    { id: "label_other" }, // neighborhoods keep their letterspaced italic caps
+    { id: "park_label" }, // parks keep italic (natural-feature voice)
+  ];
+  for (const { id, floor, bold } of chips) {
+    const layer = style.layers.find((l) => l.id === id) as
+      | { layout?: Record<string, unknown>; minzoom?: number }
+      | undefined;
+    if (!layer) continue;
+    const layout = (layer.layout ??= {});
+    // icon-image must be a constant for icon-text-fit to stretch the chip; gate
+    // by raising the layer's minzoom instead of a zoom expression on the image.
+    layout["icon-image"] = "place-pill";
+    layout["icon-text-fit"] = "both";
+    layout["icon-text-fit-padding"] = [3, 8, 3, 8];
+    layout["icon-optional"] = true; // if the image is missing, text still shows
+    layout["icon-allow-overlap"] = false;
+    layout["text-anchor"] = "center";
+    if (bold) layout["text-font"] = ["Noto Sans Bold"];
+    delete layout["text-offset"];
+    delete layout["text-variable-anchor"];
+    delete layout["text-radial-offset"];
+    // Clear leftovers from the old dot markers (label_city/town shipped an
+    // icon-size:0.4 that was shrinking the chip to nothing).
+    delete layout["icon-size"];
+    delete layout["icon-anchor"];
+    delete layout["icon-offset"];
+    if (floor) layer.minzoom = Math.max(layer.minzoom ?? 0, floor);
+  }
 }
 
 const INK = "#1A1A18";
