@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { type Place, kindLabel, formatCoords } from "@/lib/geo/types";
+import Chat from "@/components/chat/Chat";
 
 export interface PendingPin {
   lng: number;
@@ -45,11 +46,11 @@ export default function PlaceSheet({
       role="dialog"
       aria-label="Place details"
     >
-      <div className="flex h-full flex-col overflow-y-auto p-5">
+      <div className="flex h-full flex-col p-5">
         <button
           onClick={onClose}
           aria-label="Close"
-          className="absolute right-4 top-4 font-mono text-sm text-contour hover:text-ink"
+          className="absolute right-4 top-4 z-10 font-mono text-sm text-contour hover:text-ink"
         >
           ✕
         </button>
@@ -76,33 +77,17 @@ function KindLabel({ children }: { children: React.ReactNode }) {
 
 function PlaceDetail({ place }: { place: Place }) {
   return (
-    <div className="pr-8">
-      <KindLabel>{kindLabel(place.kind)}</KindLabel>
-      <h1 className="mt-1 font-display text-4xl italic leading-tight text-ink">{place.name}</h1>
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="pr-8">
+        <KindLabel>{kindLabel(place.kind)}</KindLabel>
+        <h1 className="mt-1 font-display text-4xl italic leading-tight text-ink">{place.name}</h1>
+        <p className="mt-2 font-mono text-[11px] text-contour">
+          {formatCoords(place.lat, place.lng)}
+        </p>
+      </div>
 
-      <dl className="mt-4 space-y-1 border-t border-contour pt-3 font-mono text-xs text-ink">
-        <div className="flex justify-between gap-4">
-          <dt className="text-contour">COORD</dt>
-          <dd>{formatCoords(place.lat, place.lng)}</dd>
-        </div>
-        {place.osm_type && (
-          <div className="flex justify-between gap-4">
-            <dt className="text-contour">OSM</dt>
-            <dd>
-              {place.osm_type}/{place.osm_id}
-            </dd>
-          </div>
-        )}
-        {place.admin_level != null && (
-          <div className="flex justify-between gap-4">
-            <dt className="text-contour">ADMIN LEVEL</dt>
-            <dd>{place.admin_level}</dd>
-          </div>
-        )}
-      </dl>
-
-      <div className="mt-6 border-t border-contour pt-4 text-sm text-contour">
-        Chat for this place arrives in a later build.
+      <div className="mt-3 flex min-h-0 flex-1 flex-col border-t border-contour pt-2">
+        <Chat key={place.id} placeId={place.id} placeName={place.name} />
       </div>
     </div>
   );
