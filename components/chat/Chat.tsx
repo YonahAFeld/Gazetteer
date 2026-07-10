@@ -87,7 +87,7 @@ function MessageRow({
   return (
     <div
       className={`group px-1 ${startGroup ? "mt-2" : ""} ${
-        isOwn ? "border-l-2 border-magenta pl-2" : "pl-[10px]"
+        isOwn ? "border-l-2 border-magenta pl-2" : "pl-2.5"
       }`}
     >
       {startGroup && (
@@ -100,7 +100,7 @@ function MessageRow({
       )}
       <div className="flex items-start justify-between gap-2">
         <p
-          className={`whitespace-pre-wrap break-words text-sm text-ink ${
+          className={`whitespace-pre-wrap wrap-break-word text-sm text-ink ${
             message.pending ? "opacity-50" : ""
           }`}
         >
@@ -110,7 +110,7 @@ function MessageRow({
           <button
             onClick={() => onDelete(message.id)}
             aria-label="Delete message"
-            className="mt-0.5 shrink-0 font-mono text-xs text-contour opacity-0 transition-opacity hover:text-magenta group-hover:opacity-100"
+            className="mt-0.5 shrink-0 font-mono text-xs text-contour/50 hover:text-magenta"
           >
             ✕
           </button>
@@ -216,12 +216,12 @@ function Composer({
           rows={1}
           maxLength={2000}
           placeholder="Say something…"
-          className="max-h-28 min-h-[2.25rem] w-full resize-none border border-contour bg-paper px-2 py-2 text-sm text-ink placeholder:text-contour focus:border-ink focus:outline-none"
+          className="max-h-28 min-h-9 w-full resize-none border border-contour bg-paper px-2 py-2 text-sm text-ink placeholder:text-contour focus:border-ink focus:outline-none"
         />
         <button
           type="submit"
           disabled={!text.trim() || sending}
-          className="h-[2.25rem] shrink-0 bg-magenta px-3 text-xs font-medium uppercase tracking-widest text-paper disabled:opacity-50"
+          className="h-9 shrink-0 bg-magenta px-3 text-xs font-medium uppercase tracking-widest text-paper disabled:opacity-50"
         >
           Send
         </button>
