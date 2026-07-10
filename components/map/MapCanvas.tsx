@@ -8,7 +8,7 @@ import maplibregl, {
   type LngLat,
 } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import { surveyStyle } from "./mapStyle";
+import { surveyStyle, CHIP_LAYER_IDS } from "./mapStyle";
 import type { Place } from "@/lib/geo/types";
 
 // OpenFreeMap Liberty is the default base. The architecture keeps this a single
@@ -59,8 +59,27 @@ export interface TapTarget {
 
 interface MapCanvasProps {
   selected: Place | null;
+  loading: boolean;
   onTapFeature: (target: TapTarget) => void;
   onLongPress: (lngLat: { lng: number; lat: number }) => void;
+}
+
+type FeatureRef = { source: string; sourceLayer: string; id: string | number };
+
+/** Move the `selected` feature-state from the previous feature to `next`. */
+function moveSelectedState(
+  map: MapLibreMap,
+  ref: { current: FeatureRef | null },
+  next: FeatureRef | null
+) {
+  if (ref.current) {
+    map.setFeatureState(ref.current, { selected: false });
+    ref.current = null;
+  }
+  if (next) {
+    map.setFeatureState(next, { selected: true });
+    ref.current = next;
+  }
 }
 
 /** Pick the most specific named, id-bearing feature under a tap. */
@@ -76,10 +95,18 @@ function pickFeature(features: MapGeoJSONFeature[]): MapGeoJSONFeature | null {
   return named[0];
 }
 
-export default function MapCanvas({ selected, onTapFeature, onLongPress }: MapCanvasProps) {
+export default function MapCanvas({
+  selected,
+  loading,
+  onTapFeature,
+  onLongPress,
+}: MapCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const readyRef = useRef(false);
+  const selectedFeatRef = useRef<{ source: string; sourceLayer: string; id: string | number } | null>(
+    null
+  );
 
   useEffect(() => {
     const container = containerRef.current;
@@ -110,39 +137,52 @@ export default function MapCanvas({ selected, onTapFeature, onLongPress }: MapCa
       map.addControl(new maplibregl.GeolocateControl({}), "bottom-right");
       mapRef.current = map;
 
-      // Stretchable rounded-rect chip drawn behind clickable place labels
-      // (mapStyle.ts references it as "place-pill" via icon-text-fit).
-      const addPill = () => {
-        if (map.hasImage("place-pill")) return;
-        const pr = 2;
-        const S = 28; // logical canvas size; the rect is inset to leave shadow room
+      // Stretchable capsule chip drawn behind clickable place labels
+      // (mapStyle.ts references "place-pill" / "place-pill-selected" via
+      // icon-text-fit). `border` gives the selected variant its magenta outline.
+      const pr = 2;
+      const S = 28; // logical canvas size; the rect is inset to leave shadow room
+      // `border` draws the selected variant's magenta outline with a transparent
+      // center, so it overlays the base pill without hiding the label text.
+      const makePill = (name: string, border?: string) => {
+        if (map.hasImage(name)) return;
         const c = document.createElement("canvas");
         c.width = S * pr;
         c.height = S * pr;
         const ctx = c.getContext("2d");
         if (!ctx) return;
         ctx.scale(pr, pr);
-        // White capsule with a soft drop shadow so it lifts off the map,
-        // Airbnb-price-pill style. Radius = half height → fully rounded ends.
         ctx.beginPath();
         ctx.roundRect(5, 5, 18, 16, 8);
-        ctx.shadowColor = "rgba(26,26,24,0.28)";
-        ctx.shadowBlur = 4;
-        ctx.shadowOffsetY = 1.5;
-        ctx.fillStyle = "#FFFFFF";
-        ctx.fill();
+        if (border) {
+          // Outline only (base pill provides the white fill + shadow underneath).
+          ctx.lineWidth = 1.5;
+          ctx.strokeStyle = border;
+          ctx.stroke();
+        } else {
+          // White capsule with a soft drop shadow, Airbnb-price-pill style.
+          ctx.shadowColor = "rgba(26,26,24,0.28)";
+          ctx.shadowBlur = 4;
+          ctx.shadowOffsetY = 1.5;
+          ctx.fillStyle = "#FFFFFF";
+          ctx.fill();
+        }
         const img = ctx.getImageData(0, 0, S * pr, S * pr);
         // Stretch only the flat center; the rounded caps stay fixed (true 9-slice
         // capsule). Text sits in `content`, which grows with the label.
-        map.addImage("place-pill", img, {
+        map.addImage(name, img, {
           pixelRatio: pr,
           stretchX: [[14 * pr, 15 * pr]],
           stretchY: [[12 * pr, 14 * pr]],
           content: [13 * pr, 7 * pr, 15 * pr, 19 * pr],
         });
       };
+      const addPill = () => {
+        makePill("place-pill");
+        makePill("place-pill-selected", "#C2187A");
+      };
       map.on("styleimagemissing", (e) => {
-        if (e.id === "place-pill") addPill();
+        if (e.id === "place-pill" || e.id === "place-pill-selected") addPill();
       });
 
       map.on("load", () => {
@@ -173,15 +213,17 @@ export default function MapCanvas({ selected, onTapFeature, onLongPress }: MapCa
             "line-dasharray": [3, 2],
           },
         });
+        // Marker dot for selected places that aren't chips (POIs, custom pins);
+        // chip'd places show the magenta outline pill instead.
         map.addLayer({
           id: "selection-point",
           type: "circle",
           source: "selection",
-          filter: ["==", ["geometry-type"], "Point"],
+          filter: ["all", ["==", ["geometry-type"], "Point"], ["!=", ["get", "isChip"], true]],
           paint: {
             "circle-radius": 6,
             "circle-color": "#C2187A",
-            "circle-stroke-color": "#F7F5EF",
+            "circle-stroke-color": "#FFFFFF",
             "circle-stroke-width": 2,
           },
         });
@@ -257,6 +299,14 @@ export default function MapCanvas({ selected, onTapFeature, onLongPress }: MapCa
         }
         const feature = pickFeature(featuresAround(e.point.x, e.point.y));
         if (!feature) return;
+        // Optimistic: highlight the tapped chip immediately, before hydration.
+        if (feature.source && feature.sourceLayer && feature.id != null) {
+          moveSelectedState(map, selectedFeatRef, {
+            source: feature.source,
+            sourceLayer: feature.sourceLayer,
+            id: feature.id,
+          });
+        }
         const center = featureCenter(feature, e.lngLat);
         onTapFeature({
           featureId: feature.id as number,
@@ -316,13 +366,47 @@ export default function MapCanvas({ selected, onTapFeature, onLongPress }: MapCa
     };
   }, [onTapFeature, onLongPress]);
 
-  // Reflect the current selection onto the map.
+  // Reflect the current selection onto the map: the magenta `selected`
+  // feature-state on the tapped place's chip (→ magenta outline + text), and a
+  // fallback dot marker for selected places that have no chip (POIs, custom pins).
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
+
     const apply = () => {
       const src = map.getSource("selection") as maplibregl.GeoJSONSource | undefined;
       if (!src) return;
+
+      let onChip = false;
+      if (selected && selected.osm_id != null) {
+        // Reconcile the chip highlight against the resolved place (also covers
+        // deep links, where there was no optimistic tap to set it).
+        const matches = map
+          .queryRenderedFeatures()
+          .filter(
+            (f) =>
+              f.id != null &&
+              SELECTABLE_SOURCE_LAYERS.has(f.sourceLayer ?? "") &&
+              Math.floor(Number(f.id) / 10) === selected.osm_id
+          );
+        const first = matches[0];
+        if (first?.sourceLayer && first.id != null) {
+          moveSelectedState(map, selectedFeatRef, {
+            source: "openmaptiles",
+            sourceLayer: first.sourceLayer,
+            id: first.id,
+          });
+        }
+        onChip = matches.some((m) =>
+          CHIP_LAYER_IDS.includes(m.layer.id.replace(/__selected$/, ""))
+        );
+      } else if (!selected && !loading) {
+        // Genuine deselect (sheet closed / hydration failed) — clear. During
+        // loading we keep the optimistic highlight set on tap.
+        moveSelectedState(map, selectedFeatRef, null);
+      }
+
+      // Dot marker for selected places with no chip (POIs, custom pins).
       src.setData({
         type: "FeatureCollection",
         features: selected
@@ -330,15 +414,16 @@ export default function MapCanvas({ selected, onTapFeature, onLongPress }: MapCa
               {
                 type: "Feature",
                 geometry: { type: "Point", coordinates: [selected.lng, selected.lat] },
-                properties: {},
+                properties: { isChip: onChip },
               },
             ]
           : [],
       });
     };
+
     if (readyRef.current) apply();
     else map.once("load", apply);
-  }, [selected]);
+  }, [selected, loading]);
 
   return <div ref={containerRef} className="h-full w-full" />;
 }

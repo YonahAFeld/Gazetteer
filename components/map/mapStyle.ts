@@ -258,17 +258,11 @@ export function surveyStyle(style: StyleSpecification): StyleSpecification {
       }
     }
 
-    // Hover affordance: clickable place labels turn hydrographic-blue (like a
-    // hyperlink) when their feature-state `hover` is set by the map canvas.
+    // Interactive labels: magenta when selected, hydrographic-blue on hover,
+    // driven by feature-state set from the map canvas.
     const sourceLayer = "source-layer" in layer ? layer["source-layer"] : undefined;
     if (layer.type === "symbol" && sourceLayer && HOVERABLE_SOURCE_LAYERS.has(sourceLayer)) {
-      const base = (paint["text-color"] as unknown) ?? "#1A1A18";
-      paint["text-color"] = [
-        "case",
-        ["boolean", ["feature-state", "hover"], false],
-        WATER,
-        base,
-      ];
+      paint["text-color"] = interactiveTextColor((paint["text-color"] as unknown) ?? "#1A1A18");
     }
   }
 
@@ -285,6 +279,15 @@ export function surveyStyle(style: StyleSpecification): StyleSpecification {
  * their own treatments. City/town chips only kick in at z8+ so the world view
  * stays clean.
  */
+/** Style layers rendered as tappable place chips (the map canvas keys off these). */
+export const CHIP_LAYER_IDS = [
+  "label_city",
+  "label_town",
+  "label_village",
+  "label_other",
+  "park_label",
+];
+
 function applyChips(style: StyleSpecification): void {
   const chips: Array<{ id: string; floor?: number; bold?: boolean }> = [
     { id: "label_city", floor: 8, bold: true },
@@ -318,15 +321,58 @@ function applyChips(style: StyleSpecification): void {
     delete layout["icon-offset"];
     if (floor) layer.minzoom = Math.max(layer.minzoom ?? 0, floor);
   }
+
+  // Selected-state overlays: a magenta-outlined pill that fades in (via the
+  // paint-only `icon-opacity`, since feature-state can't drive icon-image) for
+  // the selected chip. Inserted directly above each base chip layer. The text
+  // itself already turns magenta via interactiveTextColor, so the overlay hides
+  // its own text and only contributes the outline.
+  for (const { id } of chips) {
+    const baseIdx = style.layers.findIndex((l) => l.id === id);
+    if (baseIdx < 0) continue;
+    const overlay = structuredClone(style.layers[baseIdx]) as {
+      id: string;
+      layout: Record<string, unknown>;
+      paint: Record<string, unknown>;
+    };
+    overlay.id = `${id}__selected`;
+    overlay.layout = {
+      ...overlay.layout,
+      "icon-image": "place-pill-selected",
+      "icon-allow-overlap": true,
+      "text-allow-overlap": true,
+      "icon-ignore-placement": true,
+      "text-ignore-placement": true,
+    };
+    overlay.paint = {
+      ...(overlay.paint ?? {}),
+      "icon-opacity": ["case", ["boolean", ["feature-state", "selected"], false], 1, 0],
+      "text-opacity": 0,
+    };
+    style.layers.splice(baseIdx + 1, 0, overlay as unknown as StyleSpecification["layers"][number]);
+  }
 }
 
 const INK = "#1A1A18";
-const HOVER_TEXT_COLOR = [
-  "case",
-  ["boolean", ["feature-state", "hover"], false],
-  WATER,
-  INK,
-];
+const MAGENTA = "#C2187A"; // selected place accent (SPEC.md §7)
+
+/**
+ * Text color for interactive labels: magenta when the feature is selected,
+ * hydrographic-blue on hover, otherwise the given base color. Both states are
+ * set as feature-state from the map canvas.
+ */
+function interactiveTextColor(base: unknown): unknown {
+  return [
+    "case",
+    ["boolean", ["feature-state", "selected"], false],
+    MAGENTA,
+    ["boolean", ["feature-state", "hover"], false],
+    WATER,
+    base,
+  ];
+}
+
+const HOVER_TEXT_COLOR = interactiveTextColor(INK);
 
 /**
  * Rebalance which labels appear at which zoom (Gazetteer favors containers —

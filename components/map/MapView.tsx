@@ -88,7 +88,12 @@ export default function MapView() {
 
   return (
     <>
-      <MapCanvas selected={selected} onTapFeature={onTapFeature} onLongPress={onLongPress} />
+      <MapCanvas
+        selected={selected}
+        loading={loading}
+        onTapFeature={onTapFeature}
+        onLongPress={onLongPress}
+      />
       <PlaceSheet
         place={selected}
         pendingPin={pendingPin}
