@@ -16,6 +16,7 @@ import type { StyleSpecification, LayerSpecification } from "maplibre-gl";
  */
 
 const PAPER = "#F7F5EF";
+const WATER = "#3B6FA0"; // --water: the "links / active states" token (SPEC.md §7)
 const COLOR_PAINT_PROPS = [
   "background-color",
   "fill-color",
@@ -24,6 +25,16 @@ const COLOR_PAINT_PROPS = [
   "line-color",
   "text-color",
 ] as const;
+
+// Symbol layers from these source layers are clickable places; their labels get
+// a hover affordance (turn hydrographic-blue like a hyperlink) via feature-state.
+const HOVERABLE_SOURCE_LAYERS = new Set([
+  "poi",
+  "place",
+  "water_name",
+  "mountain_peak",
+  "aerodrome_label",
+]);
 
 type RGBA = { r: number; g: number; b: number; a: number };
 type HSL = { h: number; s: number; l: number; a: number };
@@ -202,6 +213,83 @@ export function surveyStyle(style: StyleSpecification): StyleSpecification {
         paint[prop] = transformColor(v, group, prop);
       }
     }
+
+    // Hover affordance: clickable place labels turn hydrographic-blue (like a
+    // hyperlink) when their feature-state `hover` is set by the map canvas.
+    const sourceLayer = "source-layer" in layer ? layer["source-layer"] : undefined;
+    if (layer.type === "symbol" && sourceLayer && HOVERABLE_SOURCE_LAYERS.has(sourceLayer)) {
+      const base = (paint["text-color"] as unknown) ?? "#1A1A18";
+      paint["text-color"] = [
+        "case",
+        ["boolean", ["feature-state", "hover"], false],
+        WATER,
+        base,
+      ];
+    }
   }
+
+  tuneLabels(next);
   return next;
+}
+
+const INK = "#1A1A18";
+const HOVER_TEXT_COLOR = [
+  "case",
+  ["boolean", ["feature-state", "hover"], false],
+  WATER,
+  INK,
+];
+
+/**
+ * Rebalance which labels appear at which zoom (Gazetteer favors containers —
+ * neighborhoods, parks, public spaces — over transit noise):
+ *   - bus stops: drop from the always-on transit layer so they only surface when
+ *     zoomed in (via the rank-gated POI layers), instead of at low zoom;
+ *   - parks: add a label layer (Liberty ships none) so public spaces are visible
+ *     and clickable, with higher collision priority than POIs;
+ *   - neighborhoods: appear a touch earlier.
+ */
+function tuneLabels(style: StyleSpecification): void {
+  const layers = style.layers as LayerSpecification[];
+
+  const transit = layers.find((l) => l.id === "poi_transit");
+  if (transit) {
+    (transit as { filter?: unknown }).filter = [
+      "match",
+      ["get", "class"],
+      ["airport", "rail"],
+      true,
+      false,
+    ];
+  }
+
+  const other = layers.find((l) => l.id === "label_other");
+  if (other) other.minzoom = 7;
+
+  if (!layers.some((l) => l.id === "park_label")) {
+    const parkLabel = {
+      id: "park_label",
+      type: "symbol",
+      source: "openmaptiles",
+      "source-layer": "park",
+      minzoom: 11,
+      filter: ["has", "name"],
+      layout: {
+        "text-field": ["coalesce", ["get", "name:en"], ["get", "name"]],
+        "text-font": ["Noto Sans Italic"],
+        "text-size": ["interpolate", ["linear"], ["zoom"], 11, 10, 16, 13],
+        "text-max-width": 8,
+        "symbol-placement": "point",
+      },
+      paint: {
+        "text-color": HOVER_TEXT_COLOR,
+        "text-halo-color": PAPER,
+        "text-halo-width": 1.2,
+      },
+    } as unknown as LayerSpecification;
+
+    // Insert before the POI layers so parks win collisions over transit/POI noise.
+    const firstPoi = layers.findIndex((l) => "source-layer" in l && l["source-layer"] === "poi");
+    layers.splice(firstPoi >= 0 ? firstPoi : layers.length, 0, parkLabel);
+  }
 }

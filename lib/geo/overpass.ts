@@ -10,8 +10,18 @@
 
 import type { OsmTags } from "./classify";
 
-const OVERPASS_ENDPOINT =
-  process.env.OVERPASS_ENDPOINT ?? "https://overpass-api.de/api/interpreter";
+// Public Overpass instances vary wildly in latency/availability. We race a few
+// per request and take the first success, aborting the losers. Override with a
+// single endpoint via OVERPASS_ENDPOINT if self-hosting later.
+const OVERPASS_ENDPOINTS = process.env.OVERPASS_ENDPOINT
+  ? [process.env.OVERPASS_ENDPOINT]
+  : [
+      "https://overpass.kumi.systems/api/interpreter",
+      "https://overpass-api.de/api/interpreter",
+      "https://overpass.private.coffee/api/interpreter",
+    ];
+
+const PER_REQUEST_TIMEOUT_MS = 12_000;
 
 export type OsmType = "node" | "way" | "relation";
 
@@ -39,8 +49,12 @@ export function osmIdFromFeatureId(featureId: number | string): number {
   return Math.floor(Number(featureId) / 10);
 }
 
-async function overpass(query: string, signal?: AbortSignal): Promise<OverpassElement[]> {
-  const res = await fetch(OVERPASS_ENDPOINT, {
+async function fetchOne(
+  endpoint: string,
+  query: string,
+  signal: AbortSignal
+): Promise<OverpassElement[]> {
+  const res = await fetch(endpoint, {
     method: "POST",
     headers: {
       "Content-Type": "application/x-www-form-urlencoded",
@@ -50,11 +64,32 @@ async function overpass(query: string, signal?: AbortSignal): Promise<OverpassEl
     body: "data=" + encodeURIComponent(query),
     signal,
   });
-  if (!res.ok) {
-    throw new Error(`Overpass ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  if (!res.ok) throw new Error(`Overpass ${endpoint} ${res.status}`);
+  // A rate-limited/queue page comes back as HTML, not JSON.
+  const text = await res.text();
+  if (text.trimStart().startsWith("<")) throw new Error(`Overpass ${endpoint} non-JSON`);
+  return (JSON.parse(text) as { elements?: OverpassElement[] }).elements ?? [];
+}
+
+/** Race the endpoints; first valid JSON response wins, the rest are aborted. */
+async function overpass(query: string, outerSignal?: AbortSignal): Promise<OverpassElement[]> {
+  const controllers = OVERPASS_ENDPOINTS.map(() => new AbortController());
+  const timer = setTimeout(() => controllers.forEach((c) => c.abort()), PER_REQUEST_TIMEOUT_MS);
+  outerSignal?.addEventListener("abort", () => controllers.forEach((c) => c.abort()));
+
+  try {
+    return await Promise.any(
+      OVERPASS_ENDPOINTS.map((endpoint, i) => fetchOne(endpoint, query, controllers[i].signal))
+    );
+  } catch (err) {
+    if (err instanceof AggregateError) {
+      throw new Error("All Overpass endpoints failed: " + err.errors.map((e) => e.message).join("; "));
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+    controllers.forEach((c) => c.abort()); // stop the losers
   }
-  const json = (await res.json()) as { elements?: OverpassElement[] };
-  return json.elements ?? [];
 }
 
 function elementCoords(el: OverpassElement): { lng: number; lat: number } | null {
