@@ -15,8 +15,42 @@ import type { StyleSpecification, LayerSpecification } from "maplibre-gl";
  * expressions on color props), so a string-in/string-out pass is sufficient.
  */
 
-const PAPER = "#F7F5EF";
-const WATER = "#3B6FA0"; // --water: the "links / active states" token (SPEC.md §7)
+/**
+ * A map vibe. The transform below reads only from the active theme, so changing
+ * the whole look is a one-object swap. See DECISIONS.md for the vibe history.
+ */
+interface MapTheme {
+  /** Map background (shows as open ocean at low zoom) + label halos. */
+  background: string;
+  /** Land: keep this much of the original saturation (1 = untouched). */
+  landSat: number;
+  /** Land: lift lightness this fraction of the way toward `landLiftTarget`. */
+  landLift: number;
+  landLiftTarget: number;
+  /** Water recolor. */
+  water: { h: number; s: number; fillL: [number, number]; lineL: [number, number]; labelL: [number, number] };
+  /** Labels: keep this much saturation; cap lightness so they stay legible ink. */
+  labelSat: number;
+  labelMaxL: number;
+  /** Hover color for clickable labels (hyperlink-style). */
+  hover: string;
+}
+
+// Active vibe: "Modern Vivid" — bright, friendly, mostly true-to-life color with
+// a clean near-white ground; magenta stays the selection accent.
+const THEME: MapTheme = {
+  background: "#FBFBF9",
+  landSat: 0.95,
+  landLift: 0.06,
+  landLiftTarget: 0.99,
+  water: { h: 205, s: 0.5, fillL: [0.7, 0.86], lineL: [0.42, 0.72], labelL: [0.3, 0.58] },
+  labelSat: 0.55,
+  labelMaxL: 0.42,
+  hover: "#3B6FA0",
+};
+
+const PAPER = THEME.background; // background + label halos
+const WATER = THEME.hover; // hover/link color used by the hover affordance
 const COLOR_PAINT_PROPS = [
   "background-color",
   "fill-color",
@@ -162,14 +196,19 @@ function transformColor(value: string, group: LayerGroup, prop: string): string 
   const hsl = rgbaToHsl(rgba);
 
   if (group === "water") {
-    // Force a consistent, muted hydrographic blue while preserving the
-    // original lightness (so deep-water fills stay light, lines/labels darker).
-    const isLabel = prop === "text-color";
+    // Recolor water to a consistent blue; keep fills bright and lines/labels
+    // darker by clamping lightness into per-role bands.
+    const band =
+      prop === "text-color"
+        ? THEME.water.labelL
+        : prop === "line-color"
+        ? THEME.water.lineL
+        : THEME.water.fillL;
     return toRgbaString(
       hslToRgba({
-        h: 210,
-        s: isLabel ? 0.35 : 0.3,
-        l: clamp(hsl.l, isLabel ? 0.25 : 0.55, 0.9),
+        h: THEME.water.h,
+        s: THEME.water.s,
+        l: clamp(hsl.l, band[0], band[1]),
         a: rgba.a,
       })
     );
@@ -177,20 +216,25 @@ function transformColor(value: string, group: LayerGroup, prop: string): string 
 
   if (group === "label") {
     if (prop === "text-color") {
-      // Labels become near-ink; keep dark labels dark, lift saturation off.
+      // Keep labels dark and legible; drop just enough saturation for crisp ink.
       return toRgbaString(
-        hslToRgba({ h: hsl.h, s: hsl.s * 0.12, l: clamp(hsl.l * 0.85, 0, 0.55), a: rgba.a })
+        hslToRgba({
+          h: hsl.h,
+          s: hsl.s * THEME.labelSat,
+          l: clamp(hsl.l * 0.92, 0, THEME.labelMaxL),
+          a: rgba.a,
+        })
       );
     }
     return value; // halos stay as-is (whitish)
   }
 
-  // land: desaturate hard and nudge lightness up toward paper
+  // land: keep most of the original color, lift lightness slightly for a clean feel.
   return toRgbaString(
     hslToRgba({
       h: hsl.h,
-      s: hsl.s * 0.28,
-      l: clamp(hsl.l + (0.96 - hsl.l) * 0.18, 0, 1),
+      s: hsl.s * THEME.landSat,
+      l: clamp(hsl.l + (THEME.landLiftTarget - hsl.l) * THEME.landLift, 0, 1),
       a: rgba.a,
     })
   );
