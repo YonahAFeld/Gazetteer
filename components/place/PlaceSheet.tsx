@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { type Place, kindLabel, formatCoords } from "@/lib/geo/types";
-import Chat from "@/components/chat/Chat";
+import PlaceWorkspace from "@/components/chat/PlaceWorkspace";
 
 export interface PendingPin {
   lng: number;
@@ -42,7 +42,7 @@ export default function PlaceSheet({
 
   return (
     <div
-      className="pointer-events-auto absolute inset-x-0 bottom-0 z-20 max-h-[70%] border-t border-ink bg-paper md:inset-y-0 md:right-0 md:left-auto md:max-h-none md:w-[400px] md:border-l md:border-t-0"
+      className="pointer-events-auto absolute inset-x-0 bottom-0 z-20 max-h-[75%] border-t border-ink bg-paper md:inset-y-0 md:right-0 md:left-auto md:max-h-none md:w-150 md:border-l md:border-t-0"
       role="dialog"
       aria-label="Place details"
     >
@@ -87,7 +87,7 @@ function PlaceDetail({ place }: { place: Place }) {
       </div>
 
       <div className="mt-3 flex min-h-0 flex-1 flex-col border-t border-contour pt-2">
-        <Chat key={place.id} placeId={place.id} placeName={place.name} />
+        <PlaceWorkspace key={place.id} placeId={place.id} />
       </div>
     </div>
   );
