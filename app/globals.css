@@ -1,0 +1,42 @@
+@import "tailwindcss";
+
+:root {
+  --paper: #F7F5EF;
+  --ink: #1A1A18;
+  --water: #3B6FA0;
+  --magenta: #C2187A;
+  --contour: #B8B2A3;
+}
+
+@theme inline {
+  --color-paper: var(--paper);
+  --color-ink: var(--ink);
+  --color-water: var(--water);
+  --color-magenta: var(--magenta);
+  --color-contour: var(--contour);
+
+  --font-sans: var(--font-archivo);
+  --font-display: var(--font-newsreader);
+  --font-mono: var(--font-plex-mono);
+}
+
+html,
+body,
+#__next {
+  height: 100%;
+}
+
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-archivo), system-ui, sans-serif;
+}
+
+* {
+  border-color: var(--contour);
+}
+
+:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}

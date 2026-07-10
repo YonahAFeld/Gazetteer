@@ -1,0 +1,207 @@
+import type { StyleSpecification, LayerSpecification } from "maplibre-gl";
+
+/**
+ * "The Survey" base map transform (spec §7).
+ *
+ * OpenFreeMap Liberty ships a full-color OSM style. We want a desaturated
+ * chart-paper variant so the magenta selection and ink UI read clearly on top —
+ * but water must stay recognizably blue (nautical-chart convention). We do this
+ * by walking the style's static color paint properties and:
+ *   - land / landcover / buildings  → desaturate hard, nudge toward paper
+ *   - water / waterways             → recolor to a muted hydrographic blue
+ *   - labels                        → push toward ink for a printed feel
+ *
+ * All Liberty color paint values are static strings (verified: no data-driven
+ * expressions on color props), so a string-in/string-out pass is sufficient.
+ */
+
+const PAPER = "#F7F5EF";
+const COLOR_PAINT_PROPS = [
+  "background-color",
+  "fill-color",
+  "fill-outline-color",
+  "fill-extrusion-color",
+  "line-color",
+  "text-color",
+] as const;
+
+type RGBA = { r: number; g: number; b: number; a: number };
+type HSL = { h: number; s: number; l: number; a: number };
+
+function clamp(n: number, lo: number, hi: number) {
+  return Math.min(hi, Math.max(lo, n));
+}
+
+function parseColor(input: string): RGBA | null {
+  const str = input.trim().toLowerCase();
+
+  // #rgb / #rgba / #rrggbb / #rrggbbaa
+  if (str[0] === "#") {
+    const hex = str.slice(1);
+    const expand = (h: string) =>
+      h.length === 3 || h.length === 4
+        ? h
+            .split("")
+            .map((c) => c + c)
+            .join("")
+        : h;
+    const h = expand(hex);
+    if (h.length !== 6 && h.length !== 8) return null;
+    const r = parseInt(h.slice(0, 2), 16);
+    const g = parseInt(h.slice(2, 4), 16);
+    const b = parseInt(h.slice(4, 6), 16);
+    const a = h.length === 8 ? parseInt(h.slice(6, 8), 16) / 255 : 1;
+    return { r, g, b, a };
+  }
+
+  const rgbMatch = str.match(/^rgba?\(([^)]+)\)$/);
+  if (rgbMatch) {
+    const parts = rgbMatch[1].split(",").map((p) => p.trim());
+    if (parts.length < 3) return null;
+    return {
+      r: clamp(parseFloat(parts[0]), 0, 255),
+      g: clamp(parseFloat(parts[1]), 0, 255),
+      b: clamp(parseFloat(parts[2]), 0, 255),
+      a: parts[3] !== undefined ? clamp(parseFloat(parts[3]), 0, 1) : 1,
+    };
+  }
+
+  const hslMatch = str.match(/^hsla?\(([^)]+)\)$/);
+  if (hslMatch) {
+    const parts = hslMatch[1].split(",").map((p) => p.trim());
+    if (parts.length < 3) return null;
+    const h = parseFloat(parts[0]);
+    const s = parseFloat(parts[1]) / 100;
+    const l = parseFloat(parts[2]) / 100;
+    const a = parts[3] !== undefined ? clamp(parseFloat(parts[3]), 0, 1) : 1;
+    return hslToRgba({ h, s, l, a });
+  }
+
+  return null;
+}
+
+function rgbaToHsl({ r, g, b, a }: RGBA): HSL {
+  const rn = r / 255,
+    gn = g / 255,
+    bn = b / 255;
+  const max = Math.max(rn, gn, bn),
+    min = Math.min(rn, gn, bn);
+  const l = (max + min) / 2;
+  let h = 0,
+    s = 0;
+  if (max !== min) {
+    const d = max - min;
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    switch (max) {
+      case rn:
+        h = (gn - bn) / d + (gn < bn ? 6 : 0);
+        break;
+      case gn:
+        h = (bn - rn) / d + 2;
+        break;
+      default:
+        h = (rn - gn) / d + 4;
+    }
+    h *= 60;
+  }
+  return { h, s, l, a };
+}
+
+function hslToRgba({ h, s, l, a }: HSL): RGBA {
+  const c = (1 - Math.abs(2 * l - 1)) * s;
+  const hp = ((h % 360) + 360) % 360 / 60;
+  const x = c * (1 - Math.abs((hp % 2) - 1));
+  let r = 0,
+    g = 0,
+    b = 0;
+  if (hp >= 0 && hp < 1) [r, g, b] = [c, x, 0];
+  else if (hp < 2) [r, g, b] = [x, c, 0];
+  else if (hp < 3) [r, g, b] = [0, c, x];
+  else if (hp < 4) [r, g, b] = [0, x, c];
+  else if (hp < 5) [r, g, b] = [x, 0, c];
+  else [r, g, b] = [c, 0, x];
+  const m = l - c / 2;
+  return {
+    r: Math.round((r + m) * 255),
+    g: Math.round((g + m) * 255),
+    b: Math.round((b + m) * 255),
+    a,
+  };
+}
+
+function toRgbaString({ r, g, b, a }: RGBA): string {
+  return `rgba(${Math.round(r)}, ${Math.round(g)}, ${Math.round(b)}, ${a})`;
+}
+
+type LayerGroup = "water" | "label" | "land";
+
+function classifyLayer(layer: LayerSpecification): LayerGroup {
+  const id = layer.id.toLowerCase();
+  const sourceLayer = ("source-layer" in layer ? layer["source-layer"] : "") ?? "";
+  if (/water|waterway|ocean|sea|lake|river/.test(id) || /water/.test(sourceLayer)) {
+    return "water";
+  }
+  if (layer.type === "symbol") return "label";
+  return "land";
+}
+
+function transformColor(value: string, group: LayerGroup, prop: string): string {
+  const rgba = parseColor(value);
+  if (!rgba) return value;
+  const hsl = rgbaToHsl(rgba);
+
+  if (group === "water") {
+    // Force a consistent, muted hydrographic blue while preserving the
+    // original lightness (so deep-water fills stay light, lines/labels darker).
+    const isLabel = prop === "text-color";
+    return toRgbaString(
+      hslToRgba({
+        h: 210,
+        s: isLabel ? 0.35 : 0.3,
+        l: clamp(hsl.l, isLabel ? 0.25 : 0.55, 0.9),
+        a: rgba.a,
+      })
+    );
+  }
+
+  if (group === "label") {
+    if (prop === "text-color") {
+      // Labels become near-ink; keep dark labels dark, lift saturation off.
+      return toRgbaString(
+        hslToRgba({ h: hsl.h, s: hsl.s * 0.12, l: clamp(hsl.l * 0.85, 0, 0.55), a: rgba.a })
+      );
+    }
+    return value; // halos stay as-is (whitish)
+  }
+
+  // land: desaturate hard and nudge lightness up toward paper
+  return toRgbaString(
+    hslToRgba({
+      h: hsl.h,
+      s: hsl.s * 0.28,
+      l: clamp(hsl.l + (0.96 - hsl.l) * 0.18, 0, 1),
+      a: rgba.a,
+    })
+  );
+}
+
+/** Return a deep-cloned Liberty style recolored for "The Survey". */
+export function surveyStyle(style: StyleSpecification): StyleSpecification {
+  const next: StyleSpecification = structuredClone(style);
+  for (const layer of next.layers) {
+    if (layer.type === "background") {
+      layer.paint = { ...(layer.paint ?? {}), "background-color": PAPER };
+      continue;
+    }
+    const group = classifyLayer(layer);
+    const paint = layer.paint as Record<string, unknown> | undefined;
+    if (!paint) continue;
+    for (const prop of COLOR_PAINT_PROPS) {
+      const v = paint[prop];
+      if (typeof v === "string") {
+        paint[prop] = transformColor(v, group, prop);
+      }
+    }
+  }
+  return next;
+}
