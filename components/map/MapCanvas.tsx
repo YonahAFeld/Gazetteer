@@ -75,24 +75,6 @@ interface MapCanvasProps {
   flyTo?: FlyToTarget | null;
 }
 
-type FeatureRef = { source: string; sourceLayer: string; id: string | number };
-
-/** Move the `selected` feature-state from the previous feature to `next`. */
-function moveSelectedState(
-  map: MapLibreMap,
-  ref: { current: FeatureRef | null },
-  next: FeatureRef | null
-) {
-  if (ref.current) {
-    map.setFeatureState(ref.current, { selected: false });
-    ref.current = null;
-  }
-  if (next) {
-    map.setFeatureState(next, { selected: true });
-    ref.current = next;
-  }
-}
-
 /** Pick the most specific named, id-bearing feature under a tap. */
 function pickFeature(features: MapGeoJSONFeature[]): MapGeoJSONFeature | null {
   const named = features.filter(
@@ -147,9 +129,6 @@ export default function MapCanvas({
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const readyRef = useRef(false);
-  const selectedFeatRef = useRef<{ source: string; sourceLayer: string; id: string | number } | null>(
-    null
-  );
 
   useEffect(() => {
     const container = containerRef.current;
@@ -188,12 +167,13 @@ export default function MapCanvas({
       mapRef.current = map;
 
       // Stretchable capsule chip drawn behind clickable place labels
-      // (mapStyle.ts references "place-pill" / "place-pill-selected" via
-      // icon-text-fit). `border` gives the selected variant its magenta outline.
+      // (mapStyle.ts references "place-pill"; MapCanvas's own "selection-chip"
+      // layer references "place-pill-selected"). Both are fully opaque — the
+      // selected variant draws its own text on top of "selection-chip"
+      // (see the `selection` source below), independent of the base label
+      // underneath, so it must fully cover that base text, not just outline it.
       const pr = 2;
       const S = 28; // logical canvas size; the rect is inset to leave shadow room
-      // `border` draws the selected variant's magenta outline with a transparent
-      // center, so it overlays the base pill without hiding the label text.
       const makePill = (name: string, border?: string) => {
         if (map.hasImage(name)) return;
         const c = document.createElement("canvas");
@@ -204,18 +184,19 @@ export default function MapCanvas({
         ctx.scale(pr, pr);
         ctx.beginPath();
         ctx.roundRect(5, 5, 18, 16, 8);
+        // White capsule with a soft drop shadow, Airbnb-price-pill style.
+        ctx.shadowColor = "rgba(26,26,24,0.28)";
+        ctx.shadowBlur = 4;
+        ctx.shadowOffsetY = 1.5;
+        ctx.fillStyle = "#FFFFFF";
+        ctx.fill();
         if (border) {
-          // Outline only (base pill provides the white fill + shadow underneath).
+          // Selected variant: an additional colored outline, no shadow on the
+          // stroke itself (would double up oddly with the fill's shadow).
+          ctx.shadowColor = "transparent";
           ctx.lineWidth = 1.5;
           ctx.strokeStyle = border;
           ctx.stroke();
-        } else {
-          // White capsule with a soft drop shadow, Airbnb-price-pill style.
-          ctx.shadowColor = "rgba(26,26,24,0.28)";
-          ctx.shadowBlur = 4;
-          ctx.shadowOffsetY = 1.5;
-          ctx.fillStyle = "#FFFFFF";
-          ctx.fill();
         }
         const img = ctx.getImageData(0, 0, S * pr, S * pr);
         // Stretch only the flat center; the rounded caps stay fixed (true 9-slice
@@ -264,7 +245,9 @@ export default function MapCanvas({
           },
         });
         // Marker dot for selected places that aren't chips (POIs, custom pins);
-        // chip'd places show the magenta outline pill instead.
+        // chip'd places show the magenta outline pill instead. Offset upward so
+        // the marker sits just above the point instead of covering the very
+        // label/icon it's marking.
         map.addLayer({
           id: "selection-point",
           type: "circle",
@@ -275,7 +258,36 @@ export default function MapCanvas({
             "circle-color": "#C2187A",
             "circle-stroke-color": "#FFFFFF",
             "circle-stroke-width": 2,
+            "circle-translate": [0, -12],
           },
+        });
+        // Selected-chip highlight: a magenta pill + text drawn once, at the one
+        // exact coordinate of whichever specific glyph was matched. Deliberately
+        // NOT feature-state on the base label layer — a large feature (e.g. a
+        // big park) can render its label several times across tiles while
+        // sharing one id, and feature-state applies to every instance sharing
+        // that id, not just the one instance actually tapped/matched. Driving
+        // this from the "selection" source's own point instead guarantees
+        // exactly one highlight regardless of how many copies exist on screen.
+        map.addLayer({
+          id: "selection-chip",
+          type: "symbol",
+          source: "selection",
+          filter: ["all", ["==", ["geometry-type"], "Point"], ["==", ["get", "isChip"], true]],
+          layout: {
+            "icon-image": "place-pill-selected",
+            "icon-text-fit": "both",
+            "icon-text-fit-padding": [3, 8, 3, 8],
+            "text-field": ["get", "name"],
+            "text-font": ["Noto Sans Bold"],
+            "text-size": 13,
+            "text-anchor": "center",
+            "icon-allow-overlap": true,
+            "text-allow-overlap": true,
+            "icon-ignore-placement": true,
+            "text-ignore-placement": true,
+          },
+          paint: { "text-color": "#C2187A" },
         });
       });
 
@@ -349,15 +361,22 @@ export default function MapCanvas({
         }
         const feature = pickFeature(featuresAround(e.point.x, e.point.y));
         if (!feature) return;
-        // Optimistic: highlight the tapped chip immediately, before hydration.
-        if (feature.source && feature.sourceLayer && feature.id != null) {
-          moveSelectedState(map, selectedFeatRef, {
-            source: feature.source,
-            sourceLayer: feature.sourceLayer,
-            id: feature.id,
-          });
-        }
+        // Optimistic: highlight the exact tapped glyph immediately, before
+        // hydration — positioned at its own coordinates, not tied to its tile
+        // feature id (which a large feature can share across several
+        // same-named copies rendered elsewhere on screen).
         const center = featureCenter(feature, e.lngLat);
+        const selSrc = map.getSource("selection") as maplibregl.GeoJSONSource | undefined;
+        selSrc?.setData({
+          type: "FeatureCollection",
+          features: [
+            {
+              type: "Feature",
+              geometry: { type: "Point", coordinates: [center.lng, center.lat] },
+              properties: { isChip: CHIP_LAYER_IDS.includes(feature.layer.id), name: feature.properties!.name },
+            },
+          ],
+        });
         onTapFeature({
           featureId: feature.id as number,
           name: String(feature.properties!.name),
@@ -430,59 +449,79 @@ export default function MapCanvas({
       const src = map.getSource("selection") as maplibregl.GeoJSONSource | undefined;
       if (!src) return;
 
-      let onChip = false;
-      if (selected && selected.osm_id != null) {
-        // Reconcile the chip highlight against the resolved place (also covers
-        // deep links and search selections, where there was no optimistic tap
-        // to set it).
-        const candidates = map
-          .queryRenderedFeatures()
-          .filter((f) => f.id != null && SELECTABLE_SOURCE_LAYERS.has(f.sourceLayer ?? ""));
-        // Prefer an exact OSM-identity match (the common tap case).
-        let matches = candidates.filter((f) => Math.floor(Number(f.id) / 10) === selected.osm_id);
-        if (matches.length === 0) {
-          // OSM often renders one real place from a DIFFERENT element than the
-          // one hydration resolved to (e.g. a city's boundary relation vs. its
-          // separate label node — the same duplicate-identity issue the
-          // hydration dedup handles server-side). Fall back to the visible
-          // chip with the same name — it's the same place either way.
-          const wanted = selected.name.trim().toLowerCase();
-          matches = candidates.filter(
-            (f) =>
-              typeof f.properties?.name === "string" &&
-              f.properties.name.trim().toLowerCase() === wanted
-          );
-        }
-        const first = matches[0];
-        if (first?.sourceLayer && first.id != null) {
-          moveSelectedState(map, selectedFeatRef, {
-            source: "openmaptiles",
-            sourceLayer: first.sourceLayer,
-            id: first.id,
-          });
-        }
-        onChip = matches.some((m) =>
-          CHIP_LAYER_IDS.includes(m.layer.id.replace(/__selected$/, ""))
-        );
-      } else if (!selected && !loading) {
-        // Genuine deselect (sheet closed / hydration failed) — clear. During
-        // loading we keep the optimistic highlight set on tap.
-        moveSelectedState(map, selectedFeatRef, null);
+      if (!selected) {
+        // Genuine deselect (sheet closed / hydration failed). During loading
+        // we keep whatever the optimistic tap already drew.
+        if (!loading) src.setData({ type: "FeatureCollection", features: [] });
+        return;
+      }
+      if (selected.osm_id == null) {
+        // Custom pins etc. have no OSM identity to reconcile against a
+        // rendered chip — always a plain dot at the stored centroid.
+        src.setData({
+          type: "FeatureCollection",
+          features: [
+            {
+              type: "Feature",
+              geometry: { type: "Point", coordinates: [selected.lng, selected.lat] },
+              properties: { isChip: false },
+            },
+          ],
+        });
+        return;
       }
 
-      // Dot marker for selected places with no chip (POIs, custom pins).
-      src.setData({
-        type: "FeatureCollection",
-        features: selected
-          ? [
-              {
-                type: "Feature",
-                geometry: { type: "Point", coordinates: [selected.lng, selected.lat] },
-                properties: { isChip: onChip },
-              },
-            ]
-          : [],
-      });
+      // Reconcile against the resolved place (covers deep links and search
+      // selections, where there was no optimistic tap to set this already).
+      const candidates = map
+        .queryRenderedFeatures()
+        .filter((f) => f.id != null && SELECTABLE_SOURCE_LAYERS.has(f.sourceLayer ?? ""));
+      // Prefer an exact OSM-identity match (the common tap case).
+      let matches = candidates.filter((f) => Math.floor(Number(f.id) / 10) === selected.osm_id);
+      if (matches.length === 0) {
+        // OSM often renders one real place from a DIFFERENT element than the
+        // one hydration resolved to (e.g. a city's boundary relation vs. its
+        // separate label node — the same duplicate-identity issue the
+        // hydration dedup handles server-side). Fall back to the visible
+        // chip with the same name — it's the same place either way.
+        const wanted = selected.name.trim().toLowerCase();
+        matches = candidates.filter(
+          (f) =>
+            typeof f.properties?.name === "string" &&
+            f.properties.name.trim().toLowerCase() === wanted
+        );
+      }
+      const match = matches.find((m) => CHIP_LAYER_IDS.includes(m.layer.id));
+
+      if (match) {
+        // Position the highlight at THIS specific glyph's own coordinates, not
+        // selected.lng/lat (the DB's stored centroid, which may not align with
+        // any particular rendered instance) — see the multi-instance note above.
+        const center = featureCenter(match, { lng: selected.lng, lat: selected.lat } as LngLat);
+        src.setData({
+          type: "FeatureCollection",
+          features: [
+            {
+              type: "Feature",
+              geometry: { type: "Point", coordinates: [center.lng, center.lat] },
+              properties: { isChip: true, name: selected.name },
+            },
+          ],
+        });
+      } else {
+        // No rendered chip to reconcile against (POI, or nothing on screen at
+        // this zoom) — fall back to a plain dot at the stored centroid.
+        src.setData({
+          type: "FeatureCollection",
+          features: [
+            {
+              type: "Feature",
+              geometry: { type: "Point", coordinates: [selected.lng, selected.lat] },
+              properties: { isChip: false },
+            },
+          ],
+        });
+      }
     };
 
     if (readyRef.current) apply();
@@ -491,6 +530,15 @@ export default function MapCanvas({
 
   useEffect(() => {
     applyChipReconciliation();
+  }, [applyChipReconciliation]);
+
+  // The flyTo effect's `idle` listener can fire well after `selected` has
+  // moved on (onSearchSelect sets flyTo, then selected, in separate renders) —
+  // a ref keeps the idle handler pointed at the LATEST reconciliation logic
+  // instead of the stale one captured when the listener was registered.
+  const reconcileRef = useRef(applyChipReconciliation);
+  useEffect(() => {
+    reconcileRef.current = applyChipReconciliation;
   }, [applyChipReconciliation]);
 
   // Search selects a place that may be off-screen; fly the camera there, then
@@ -509,9 +557,11 @@ export default function MapCanvas({
     // tile fetch can still be in flight at that exact instant, so retry once
     // more shortly after as a safety net against that race.
     map.once("idle", () => {
-      applyChipReconciliation();
-      setTimeout(applyChipReconciliation, 600);
+      reconcileRef.current();
+      setTimeout(() => reconcileRef.current(), 600);
     });
+    // Only re-fly on a new token — flyTo's lng/lat/zoom always change together
+    // with token from the caller, so token alone is the right dependency.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [flyTo?.token]);
 

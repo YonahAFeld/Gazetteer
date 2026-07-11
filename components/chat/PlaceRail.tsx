@@ -98,7 +98,7 @@ export default function PlaceRail({
       {isAuthed ? (
         dms.length === 0 ? (
           <p className="mt-1 px-1 text-xs text-contour">
-            Message someone who&apos;s posted here (via a message&apos;s DM action).
+            Reply privately to anyone who&apos;s posted here.
           </p>
         ) : (
           <ul className="mt-1">

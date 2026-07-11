@@ -156,8 +156,13 @@ function SheetSkeleton() {
   return (
     <div className="animate-pulse pr-8">
       <div className="h-3 w-24 bg-contour/40" />
-      <div className="mt-2 h-9 w-3/4 bg-contour/40" />
-      <div className="mt-5 h-3 w-1/2 bg-contour/30" />
+      {/* Wide, not proportional — place names range from "LA" to "Topanga State
+          Park" to much longer, and under-promising here made the real title
+          visibly grow past the skeleton the instant it loaded. */}
+      <div className="mt-2 h-10 w-11/12 bg-contour/40" />
+      {/* Coordinates are a fixed-format string ("34.0521° N 118.4741° W"),
+          not proportional to the place name — a fixed width matches better. */}
+      <div className="mt-5 h-3 w-40 bg-contour/30" />
     </div>
   );
 }

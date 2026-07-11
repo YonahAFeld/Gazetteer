@@ -321,55 +321,24 @@ function applyChips(style: StyleSpecification): void {
     delete layout["icon-offset"];
     if (floor) layer.minzoom = Math.max(layer.minzoom ?? 0, floor);
   }
-
-  // Selected-state overlays: a magenta-outlined pill that fades in (via the
-  // paint-only `icon-opacity`, since feature-state can't drive icon-image) for
-  // the selected chip. Inserted directly above each base chip layer. The text
-  // itself already turns magenta via interactiveTextColor, so the overlay hides
-  // its own text and only contributes the outline.
-  for (const { id } of chips) {
-    const baseIdx = style.layers.findIndex((l) => l.id === id);
-    if (baseIdx < 0) continue;
-    const overlay = structuredClone(style.layers[baseIdx]) as {
-      id: string;
-      layout: Record<string, unknown>;
-      paint: Record<string, unknown>;
-    };
-    overlay.id = `${id}__selected`;
-    overlay.layout = {
-      ...overlay.layout,
-      "icon-image": "place-pill-selected",
-      "icon-allow-overlap": true,
-      "text-allow-overlap": true,
-      "icon-ignore-placement": true,
-      "text-ignore-placement": true,
-    };
-    overlay.paint = {
-      ...(overlay.paint ?? {}),
-      "icon-opacity": ["case", ["boolean", ["feature-state", "selected"], false], 1, 0],
-      "text-opacity": 0,
-    };
-    style.layers.splice(baseIdx + 1, 0, overlay as unknown as StyleSpecification["layers"][number]);
-  }
+  // Selection highlight is deliberately NOT a per-chip-kind feature-state
+  // overlay here — see MapCanvas's single "selection-chip" layer, which is
+  // positioned at one exact coordinate instead of tied to a (possibly
+  // multiply-rendered) tile feature id.
 }
 
 const INK = "#1A1A18";
-const MAGENTA = "#C2187A"; // selected place accent (SPEC.md §7)
 
 /**
- * Text color for interactive labels: magenta when the feature is selected,
- * hydrographic-blue on hover, otherwise the given base color. Both states are
- * set as feature-state from the map canvas.
+ * Text color for interactive labels: hydrographic-blue on hover, otherwise the
+ * given base color, set as feature-state from the map canvas. Selection is
+ * NOT driven by feature-state (see MapCanvas's "selection-chip" layer) — a
+ * large feature like a park can render its label multiple times across tiles
+ * while sharing one id, and feature-state applies to every instance sharing
+ * that id, not just the one glyph actually tapped.
  */
 function interactiveTextColor(base: unknown): unknown {
-  return [
-    "case",
-    ["boolean", ["feature-state", "selected"], false],
-    MAGENTA,
-    ["boolean", ["feature-state", "hover"], false],
-    WATER,
-    base,
-  ];
+  return ["case", ["boolean", ["feature-state", "hover"], false], WATER, base];
 }
 
 const HOVER_TEXT_COLOR = interactiveTextColor(INK);
