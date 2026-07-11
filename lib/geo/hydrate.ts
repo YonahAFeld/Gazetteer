@@ -62,7 +62,7 @@ export interface HydratedPlace {
   source: "db" | "overpass";
 }
 
-interface PlaceReaderRow {
+export interface PlaceReaderRow {
   id: string;
   osm_type: string | null;
   osm_id: number | null;
@@ -74,7 +74,7 @@ interface PlaceReaderRow {
   has_boundary: boolean;
 }
 
-function readerToPlace(row: PlaceReaderRow, source: "db" | "overpass"): HydratedPlace {
+export function readerToPlace(row: PlaceReaderRow, source: "db" | "overpass"): HydratedPlace {
   return {
     id: row.id,
     osm_type: row.osm_type,

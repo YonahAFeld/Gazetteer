@@ -4,11 +4,14 @@ import { useEffect, useRef } from "react";
 import type { ChatMessage, Parent, ReplyPreview } from "@/lib/chat/types";
 import MessageList from "./MessageList";
 import Composer from "./Composer";
+import ShareChannelButton from "./ShareChannelButton";
 
 interface MessageStreamProps {
+  placeId: string;
   parent: Parent;
   messages: ChatMessage[];
   loading: boolean;
+  gated?: boolean;
   userId: string | null;
   canPost: boolean;
   isAuthed: boolean;
@@ -26,9 +29,11 @@ interface MessageStreamProps {
 }
 
 export default function MessageStream({
+  placeId,
   parent,
   messages,
   loading,
+  gated,
   userId,
   canPost,
   isAuthed,
@@ -64,11 +69,16 @@ export default function MessageStream({
             {memberCount} {memberCount === 1 ? "member" : "members"}
           </span>
         )}
+        {parent.type === "channel" && parent.slug && (
+          <ShareChannelButton placeId={placeId} channelSlug={parent.slug} />
+        )}
       </div>
 
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto pr-1">
         {loading ? (
           <MessagesSkeleton />
+        ) : gated ? (
+          <GatedNotice />
         ) : messages.length === 0 ? (
           <EmptyStream parent={parent} />
         ) : (
@@ -115,6 +125,17 @@ export default function MessageStream({
         autoFocus={!!replyPreview}
         onSend={onSend}
       />
+    </div>
+  );
+}
+
+function GatedNotice() {
+  return (
+    <div className="flex h-full items-center px-1 py-8">
+      <p className="text-sm text-contour">
+        This channel is getting a lot of new activity.{" "}
+        <span className="text-ink">Sign in to keep reading.</span>
+      </p>
     </div>
   );
 }

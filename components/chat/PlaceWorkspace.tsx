@@ -35,7 +35,14 @@ function withQuote(reply: ReplyPreview, body: string): string {
  * rail sits beside the stream; on mobile they're a push stack (rail → stream →
  * thread). Selecting a conversation never touches the map's camera.
  */
-export default function PlaceWorkspace({ placeId, placeName }: { placeId: string; placeName?: string }) {
+interface PlaceWorkspaceProps {
+  placeId: string;
+  placeName?: string;
+  /** Channel slug from a deep link (`/p/[placeId]/[channelSlug]`), if any. */
+  initialChannelSlug?: string | null;
+}
+
+export default function PlaceWorkspace({ placeId, placeName, initialChannelSlug }: PlaceWorkspaceProps) {
   const identity = useIdentity();
   const { userId, handle, avatarUrl, isAuthed, canPost } = identity;
   const workspace = useWorkspace(placeId, isAuthed);
@@ -48,29 +55,51 @@ export default function PlaceWorkspace({ placeId, placeName }: { placeId: string
   const [composerNonce, setComposerNonce] = useState(0);
 
   const stream = useStream(active, userId, handle, avatarUrl);
-  const { messages, threads, loading: streamLoading, send, react, edit, remove, loadThread } = stream;
+  const { messages, threads, loading: streamLoading, gated, send, react, edit, remove, loadThread } = stream;
 
-  // Desktop opens #general by default; mobile starts on the rail. One-time,
-  // once channels load — guarded by a ref so it never re-fires.
-  const autoPicked = useRef(false);
+  // Resolves `initialChannelSlug` to a channel and activates it — both at
+  // mount (a deep link) and whenever it changes afterward (MapView's popstate
+  // handler updates it on browser back/forward). Guarded by a ref keyed to
+  // the slug value itself, NOT to `active`, so this never re-fires (and never
+  // fights) when the user picks a channel by hand — those calls go through
+  // `selectChannel` below and never touch `initialChannelSlug` at all.
+  const appliedSlug = useRef<{ done: boolean; value: string | null }>({ done: false, value: null });
   useEffect(() => {
-    if (autoPicked.current || active || channels.length === 0) return;
-    autoPicked.current = true;
-    if (typeof window !== "undefined" && window.matchMedia("(min-width: 768px)").matches) {
-      const general = channels.find((c) => c.slug === "general") ?? channels[0];
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time mount default after async channel load
-      setActive({ type: "channel", id: general.id, name: general.name });
-      markReadLocal("channel", general.id);
+    if (channels.length === 0) return;
+    const slug = initialChannelSlug ?? null;
+    if (appliedSlug.current.done && appliedSlug.current.value === slug) return;
+    appliedSlug.current = { done: true, value: slug };
+
+    // A deep link (slug present) always resolves to a specific channel, even
+    // on mobile — landing in the exact shared channel is the whole point. A
+    // bare place open/return keeps the desktop-only "#general by default,
+    // mobile starts on the rail" convenience.
+    const requested = slug ? channels.find((c) => c.slug === slug) : undefined;
+    const isDesktop = typeof window !== "undefined" && window.matchMedia("(min-width: 768px)").matches;
+    // Falls back to #general/first whenever a channel must be picked but the
+    // requested slug didn't match — never errors on a stale/bad shared link.
+    const target = requested ?? (slug || isDesktop ? channels.find((c) => c.slug === "general") ?? channels[0] : null);
+
+    setThreadRootId(null);
+    if (!target) {
+      // Reacting to an external prop (deep-link/popstate slug), not
+      // derivable state.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setActive(null);
+      return;
     }
-  }, [active, channels, markReadLocal]);
+    setActive({ type: "channel", id: target.id, name: target.name, slug: target.slug });
+    markReadLocal("channel", target.id);
+  }, [channels, markReadLocal, initialChannelSlug]);
 
   const selectChannel = useCallback(
     (c: Channel) => {
       setThreadRootId(null);
-      setActive({ type: "channel", id: c.id, name: c.name });
+      setActive({ type: "channel", id: c.id, name: c.name, slug: c.slug });
       markReadLocal("channel", c.id);
+      window.history.pushState(null, "", `/p/${placeId}/${c.slug}`);
     },
-    [markReadLocal]
+    [markReadLocal, placeId]
   );
 
   const selectDm = useCallback(
@@ -78,15 +107,19 @@ export default function PlaceWorkspace({ placeId, placeName }: { placeId: string
       setThreadRootId(null);
       setActive({ type: "dm", id: d.thread_id, name: d.other_handle ?? "someone" });
       markReadLocal("dm", d.thread_id);
+      // DMs aren't shareable — back to the bare (channel-less) place URL so
+      // the address bar never points at a private conversation.
+      window.history.pushState(null, "", `/p/${placeId}`);
     },
-    [markReadLocal]
+    [markReadLocal, placeId]
   );
 
   const backToRail = useCallback(() => {
     setThreadRootId(null);
     setActive(null);
     void refresh();
-  }, [refresh]);
+    window.history.pushState(null, "", `/p/${placeId}`);
+  }, [refresh, placeId]);
 
   const openThread = useCallback(
     (rootId: string) => {
@@ -180,9 +213,11 @@ export default function PlaceWorkspace({ placeId, placeName }: { placeId: string
         {active ? (
           <MessageStream
             key={composerNonce}
+            placeId={placeId}
             parent={active}
             messages={messages}
             loading={streamLoading}
+            gated={gated}
             userId={userId}
             canPost={canPost}
             isAuthed={isAuthed}

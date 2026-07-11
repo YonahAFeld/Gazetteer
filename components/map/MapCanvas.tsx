@@ -73,6 +73,9 @@ interface MapCanvasProps {
   onTapFeature: (target: TapTarget) => void;
   onLongPress: (lngLat: { lng: number; lat: number }) => void;
   flyTo?: FlyToTarget | null;
+  /** Deep-link entry point: open already centered here instead of geolocating.
+   * Read once, at mount — later changes don't re-open the map. */
+  initialView?: { lng: number; lat: number; zoom: number } | null;
 }
 
 /** Pick the most specific named, id-bearing feature under a tap. */
@@ -202,6 +205,7 @@ export default function MapCanvas({
   onTapFeature,
   onLongPress,
   flyTo,
+  initialView: initialViewProp,
 }: MapCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
@@ -216,7 +220,7 @@ export default function MapCanvas({
     let cancelled = false;
 
     async function init() {
-      const [styleResult, initialView] = await Promise.all([
+      const [styleResult, geoView] = await Promise.all([
         (async () => {
           let style: StyleSpecification | string = STYLE_URL;
           try {
@@ -227,9 +231,15 @@ export default function MapCanvas({
           }
           return style;
         })(),
-        getInitialView(),
+        // A deep link already knows where to open — skip geolocation entirely
+        // rather than racing it against a `flyTo` (which only fires once the
+        // map instance exists, so it can't reliably override the very first paint).
+        initialViewProp ? Promise.resolve(null) : getInitialView(),
       ]);
       const style = styleResult;
+      const initialView = initialViewProp
+        ? { center: [initialViewProp.lng, initialViewProp.lat] as [number, number], zoom: initialViewProp.zoom }
+        : geoView!;
       if (cancelled || !container) return;
 
       const map = new maplibregl.Map({
@@ -532,6 +542,10 @@ export default function MapCanvas({
       mapRef.current?.remove();
       mapRef.current = null;
     };
+    // initialViewProp is intentionally excluded: it's a mount-time-only value
+    // (where to open, once) — including it would tear down and recreate the
+    // whole WebGL map if the caller's object identity ever changed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onTapFeature, onLongPress]);
 
   // Reflect the current selection onto the map. Position is ALWAYS the

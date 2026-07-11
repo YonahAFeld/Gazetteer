@@ -45,6 +45,8 @@ export interface Parent {
   type: ParentType;
   id: string;
   name: string;
+  /** Channel slug — present for `type: "channel"` only, used for its shareable URL. */
+  slug?: string;
 }
 
 /** The quoted-message banner shown above a DM composer after tapping "reply privately". */

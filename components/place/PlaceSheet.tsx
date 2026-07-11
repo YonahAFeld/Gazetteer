@@ -11,6 +11,8 @@ export interface PendingPin {
 
 interface PlaceSheetProps {
   place: Place | null;
+  /** Channel slug from a deep link or a popstate navigation, if any. */
+  channelSlug?: string | null;
   pendingPin: PendingPin | null;
   loading: boolean;
   isAuthed: boolean;
@@ -20,6 +22,7 @@ interface PlaceSheetProps {
 
 export default function PlaceSheet({
   place,
+  channelSlug,
   pendingPin,
   loading,
   isAuthed,
@@ -61,7 +64,7 @@ export default function PlaceSheet({
           <PinForm pin={pendingPin} isAuthed={isAuthed} onCreatePin={onCreatePin} />
         )}
 
-        {!loading && !pendingPin && place && <PlaceDetail place={place} />}
+        {!loading && !pendingPin && place && <PlaceDetail place={place} channelSlug={channelSlug} />}
       </div>
     </div>
   );
@@ -75,7 +78,7 @@ function KindLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
-function PlaceDetail({ place }: { place: Place }) {
+function PlaceDetail({ place, channelSlug }: { place: Place; channelSlug?: string | null }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="pr-8">
@@ -87,7 +90,12 @@ function PlaceDetail({ place }: { place: Place }) {
       </div>
 
       <div className="mt-3 flex min-h-0 flex-1 flex-col border-t border-contour pt-2">
-        <PlaceWorkspace key={place.id} placeId={place.id} placeName={place.name} />
+        <PlaceWorkspace
+          key={place.id}
+          placeId={place.id}
+          placeName={place.name}
+          initialChannelSlug={channelSlug}
+        />
       </div>
     </div>
   );

@@ -62,6 +62,9 @@ export function useStream(
   // synchronous setState on every parent switch.
   const [loadedFor, setLoadedFor] = useState<string | null>(null);
   const loading = !!parent && loadedFor !== parent.id;
+  // Set when channel_messages() rejects an anonymous read because the
+  // channel's (currently-off-by-default) velocity guard tripped.
+  const [gated, setGated] = useState(false);
 
   const channelsRef = useRef<RealtimeChannel[]>([]);
   const profileCache = useRef<Map<string, { handle: string; avatar_url: string | null }>>(new Map());
@@ -123,8 +126,16 @@ export function useStream(
     let active = true;
 
     (async () => {
-      const { data } = await supabase.rpc(readerFn, { [idArg]: parent.id });
+      const { data, error } = await supabase.rpc(readerFn, { [idArg]: parent.id });
       if (!active) return;
+      if (error) {
+        setGated(/sign_in_required/.test(error.message));
+        setMessages([]);
+        setThreads({});
+        setLoadedFor(parent.id);
+        return;
+      }
+      setGated(false);
       const list = ((data ?? []) as Raw[]).slice().reverse(); // oldest → newest
       for (const m of list) {
         if (m.handle) profileCache.current.set(m.author_id, { handle: m.handle, avatar_url: m.avatar_url });
@@ -354,5 +365,5 @@ export function useStream(
     [supabase]
   );
 
-  return { messages, threads, loading, send, react, edit, remove, loadThread };
+  return { messages, threads, loading, gated, send, react, edit, remove, loadThread };
 }
