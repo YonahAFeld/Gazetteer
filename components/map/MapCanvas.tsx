@@ -57,11 +57,19 @@ export interface TapTarget {
   lat: number;
 }
 
+export interface FlyToTarget {
+  lng: number;
+  lat: number;
+  /** Bumped by the caller on every request so repeat flights to the same spot still fire. */
+  token: number;
+}
+
 interface MapCanvasProps {
   selected: Place | null;
   loading: boolean;
   onTapFeature: (target: TapTarget) => void;
   onLongPress: (lngLat: { lng: number; lat: number }) => void;
+  flyTo?: FlyToTarget | null;
 }
 
 type FeatureRef = { source: string; sourceLayer: string; id: string | number };
@@ -131,6 +139,7 @@ export default function MapCanvas({
   loading,
   onTapFeature,
   onLongPress,
+  flyTo,
 }: MapCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
@@ -403,6 +412,15 @@ export default function MapCanvas({
       mapRef.current = null;
     };
   }, [onTapFeature, onLongPress]);
+
+  // Search selects a place that may be off-screen; fly the camera there. Keyed
+  // by `token` (bumped by the caller) so re-selecting the same result still flies.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !flyTo) return;
+    map.flyTo({ center: [flyTo.lng, flyTo.lat], zoom: Math.max(map.getZoom(), 14) });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [flyTo?.token]);
 
   // Reflect the current selection onto the map: the magenta `selected`
   // feature-state on the tapped place's chip (→ magenta outline + text), and a
