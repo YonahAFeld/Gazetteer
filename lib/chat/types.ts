@@ -47,6 +47,14 @@ export interface Parent {
   name: string;
 }
 
+/** The quoted-message banner shown above a DM composer after tapping "reply privately". */
+export interface ReplyPreview {
+  authorHandle: string | null;
+  body: string;
+  /** Where the quoted message came from, e.g. "#general · Pembroke Pines". */
+  sourceLabel: string | null;
+}
+
 export const QUICK_EMOJI = ["👍", "❤️", "😂", "😮", "😢", "🙌"] as const;
 export const MORE_EMOJI = [
   "🎉", "🔥", "👀", "✅", "🙏", "💯", "😍", "🤔", "👏", "😅",

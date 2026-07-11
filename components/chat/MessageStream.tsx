@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import type { ChatMessage, Parent } from "@/lib/chat/types";
+import type { ChatMessage, Parent, ReplyPreview } from "@/lib/chat/types";
 import MessageList from "./MessageList";
 import Composer from "./Composer";
 
@@ -13,7 +13,8 @@ interface MessageStreamProps {
   canPost: boolean;
   isAuthed: boolean;
   memberCount?: number;
-  initialComposerText?: string;
+  replyPreview?: ReplyPreview | null;
+  onCancelReply?: () => void;
   onBack: () => void;
   onSend: (body: string) => Promise<void>;
   onReact: (id: string, emoji: string) => void;
@@ -32,7 +33,8 @@ export default function MessageStream({
   canPost,
   isAuthed,
   memberCount,
-  initialComposerText,
+  replyPreview,
+  onCancelReply,
   onBack,
   onSend,
   onReact,
@@ -85,12 +87,32 @@ export default function MessageStream({
         )}
       </div>
 
+      {replyPreview && (
+        <div className="flex items-start gap-2 border-l-2 border-magenta bg-contour/10 py-1.5 pl-2 pr-1">
+          <div className="min-w-0 flex-1">
+            <p className="text-xs font-semibold text-magenta">
+              Replying to {replyPreview.authorHandle ? `@${replyPreview.authorHandle}` : "them"}
+            </p>
+            {replyPreview.sourceLabel && (
+              <p className="font-mono text-[10px] text-contour">{replyPreview.sourceLabel}</p>
+            )}
+            <p className="truncate text-xs text-contour">{replyPreview.body}</p>
+          </div>
+          <button
+            onClick={onCancelReply}
+            aria-label="Cancel reply"
+            className="shrink-0 px-1 font-mono text-sm text-contour hover:text-magenta"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
       <Composer
         canPost={canPost}
         isAuthed={isAuthed}
         placeholder={parent.type === "channel" ? `Message # ${parent.name}` : `Message @${parent.name}`}
-        initialText={initialComposerText}
-        autoFocus={!!initialComposerText}
+        autoFocus={!!replyPreview}
         onSend={onSend}
       />
     </div>

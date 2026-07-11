@@ -87,7 +87,7 @@ function PlaceDetail({ place }: { place: Place }) {
       </div>
 
       <div className="mt-3 flex min-h-0 flex-1 flex-col border-t border-contour pt-2">
-        <PlaceWorkspace key={place.id} placeId={place.id} />
+        <PlaceWorkspace key={place.id} placeId={place.id} placeName={place.name} />
       </div>
     </div>
   );

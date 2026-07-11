@@ -4,20 +4,29 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useIdentity } from "@/lib/chat/useIdentity";
 import { useWorkspace } from "@/lib/chat/useWorkspace";
 import { useStream } from "@/lib/chat/useStream";
-import type { ChatMessage, Channel, DmThread, Parent } from "@/lib/chat/types";
+import type { ChatMessage, Channel, DmThread, Parent, ReplyPreview } from "@/lib/chat/types";
 import PlaceRail from "./PlaceRail";
 import MessageStream from "./MessageStream";
 import ThreadPanel from "./ThreadPanel";
 
 const QUOTE_SNIPPET_MAX = 120;
 
-/** A prefill for the DM composer when replying privately to a specific message. */
-function quoteDraft(message: ChatMessage): string {
-  const body = message.body.length > QUOTE_SNIPPET_MAX
-    ? `${message.body.slice(0, QUOTE_SNIPPET_MAX)}…`
-    : message.body;
-  const who = message.handle ? `@${message.handle}` : "them";
-  return `Replying to ${who}: "${body}"\n\n`;
+interface ReplyContext extends ReplyPreview {
+  /** Which DM thread this quote belongs to — the banner only shows there. */
+  forThreadId: string;
+}
+
+function snippet(body: string): string {
+  return body.length > QUOTE_SNIPPET_MAX ? `${body.slice(0, QUOTE_SNIPPET_MAX)}…` : body;
+}
+
+/** Folds the quoted context into the actual message body, since there's no
+ * schema-level "reply to" reference — this is the one place that context is
+ * preserved once the message is sent and the banner is gone. */
+function withQuote(reply: ReplyPreview, body: string): string {
+  const who = reply.authorHandle ? `@${reply.authorHandle}` : "them";
+  const where = reply.sourceLabel ? ` in ${reply.sourceLabel}` : "";
+  return `Replying to ${who}${where}: "${snippet(reply.body)}"\n\n${body}`;
 }
 
 /**
@@ -26,7 +35,7 @@ function quoteDraft(message: ChatMessage): string {
  * rail sits beside the stream; on mobile they're a push stack (rail → stream →
  * thread). Selecting a conversation never touches the map's camera.
  */
-export default function PlaceWorkspace({ placeId }: { placeId: string }) {
+export default function PlaceWorkspace({ placeId, placeName }: { placeId: string; placeName?: string }) {
   const identity = useIdentity();
   const { userId, handle, avatarUrl, isAuthed, canPost } = identity;
   const workspace = useWorkspace(placeId, isAuthed);
@@ -35,7 +44,7 @@ export default function PlaceWorkspace({ placeId }: { placeId: string }) {
   const [active, setActive] = useState<Parent | null>(null);
   const [threadRootId, setThreadRootId] = useState<string | null>(null);
   const [actionError, setActionError] = useState("");
-  const [pendingQuote, setPendingQuote] = useState<string | undefined>(undefined);
+  const [replyContext, setReplyContext] = useState<ReplyContext | null>(null);
   const [composerNonce, setComposerNonce] = useState(0);
 
   const stream = useStream(active, userId, handle, avatarUrl);
@@ -90,10 +99,18 @@ export default function PlaceWorkspace({ placeId }: { placeId: string }) {
   const messageUser = useCallback(
     async (authorId: string, message: ChatMessage) => {
       setActionError("");
+      // Captured now, before selectDm below switches `active` to the DM —
+      // this is the last moment the source channel is still "active".
+      const sourceLabel = active?.type === "channel" ? `#${active.name}${placeName ? ` · ${placeName}` : ""}` : null;
       try {
         const dm = await openDm(authorId);
         if (dm) {
-          setPendingQuote(quoteDraft(message));
+          setReplyContext({
+            forThreadId: dm.thread_id,
+            authorHandle: message.handle,
+            body: message.body,
+            sourceLabel,
+          });
           setComposerNonce((n) => n + 1);
           selectDm(dm);
         }
@@ -102,7 +119,20 @@ export default function PlaceWorkspace({ placeId }: { placeId: string }) {
         setActionError(/posted here first/.test(msg) ? "You can DM someone once you've both posted here." : "Couldn't open that DM.");
       }
     },
-    [openDm, selectDm]
+    [active, placeName, openDm, selectDm]
+  );
+
+  // Only show the banner while the matching DM is actually open — no
+  // explicit clearing needed when the user navigates elsewhere and back.
+  const activeReplyPreview =
+    replyContext && active?.type === "dm" && active.id === replyContext.forThreadId ? replyContext : null;
+
+  const sendWithReply = useCallback(
+    async (body: string) => {
+      await send(activeReplyPreview ? withQuote(activeReplyPreview, body) : body);
+      if (activeReplyPreview) setReplyContext(null);
+    },
+    [activeReplyPreview, send]
   );
 
   const createAndOpen = useCallback(
@@ -157,9 +187,10 @@ export default function PlaceWorkspace({ placeId }: { placeId: string }) {
             canPost={canPost}
             isAuthed={isAuthed}
             memberCount={activeChannel?.member_count}
-            initialComposerText={pendingQuote}
+            replyPreview={activeReplyPreview}
+            onCancelReply={() => setReplyContext(null)}
             onBack={backToRail}
-            onSend={(body) => send(body)}
+            onSend={sendWithReply}
             onReact={react}
             onReply={openThread}
             onOpenThread={openThread}
