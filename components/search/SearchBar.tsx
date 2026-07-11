@@ -136,9 +136,10 @@ export default function SearchBar({ onSelect }: SearchBarProps) {
                 <button
                   onMouseDown={(e) => e.preventDefault()}
                   onClick={() => select(r)}
-                  className="block w-full px-4 py-2.5 text-left text-sm text-ink hover:bg-contour/15"
+                  className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-ink hover:bg-contour/15"
                 >
-                  {r.name}
+                  <span className="truncate underline decoration-contour underline-offset-2">{r.name}</span>
+                  <ChevronIcon className="ms-auto h-3.5 w-3.5 shrink-0 text-contour" />
                 </button>
               </li>
             ))}
@@ -154,6 +155,17 @@ function SearchIcon(props: React.SVGProps<SVGSVGElement>) {
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" {...props}>
       <circle cx="11" cy="11" r="7" />
       <line x1="21" y1="21" x2="16.65" y2="16.65" />
+    </svg>
+  );
+}
+
+// Points toward reading-forward (end of the line), not literally "right" —
+// `ms-auto` on the caller already puts it on the correct side for the
+// element's direction (end in LTR, start in RTL).
+function ChevronIcon(props: React.SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="M9 6l6 6-6 6" />
     </svg>
   );
 }
