@@ -11,6 +11,8 @@ interface NominatimResult {
   display_name: string;
   lat: string;
   lon: string;
+  class: string;
+  type: string;
 }
 
 export interface SearchResult {
@@ -18,6 +20,29 @@ export interface SearchResult {
   name: string;
   lng: number;
   lat: number;
+  /** A zoom the result's label/chip actually renders at — a city's label
+   * disappears if you fly in street-close, so this can't be a flat constant. */
+  zoom: number;
+}
+
+// Rough zoom-out-enough-to-see-the-chip per Nominatim `type` (SPEC.md §5).
+// Falls back to a POI-ish close zoom for anything unrecognized.
+const ZOOM_BY_TYPE: Record<string, number> = {
+  country: 4,
+  state: 6,
+  province: 6,
+  county: 8,
+  city: 11,
+  town: 12,
+  administrative: 11,
+  village: 13,
+  suburb: 13,
+  neighbourhood: 14,
+  hamlet: 14,
+};
+
+function zoomFor(r: NominatimResult): number {
+  return ZOOM_BY_TYPE[r.type] ?? 15;
 }
 
 /**
@@ -63,6 +88,7 @@ export async function GET(req: Request) {
         name: r.display_name,
         lng: parseFloat(r.lon),
         lat: parseFloat(r.lat),
+        zoom: zoomFor(r),
       }));
     return NextResponse.json({ results });
   } catch (e) {

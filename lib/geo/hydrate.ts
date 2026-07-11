@@ -21,6 +21,25 @@ import {
 
 const CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
+// OSM often models one real-world place as several elements (e.g. a city's
+// boundary relation vs. its separate label node). Before inserting a *new*
+// osm_type/osm_id as its own place, check whether an existing place of the
+// same kind+name already sits within this radius — if so, treat the new
+// element as an alias instead of splitting the chat in two. Radius scales
+// with how large/imprecise a kind's "centroid" tends to be; 0 disables dedup
+// (custom pins are user-authored and must never merge).
+const DEDUP_RADIUS_M: Record<string, number> = {
+  country: 300_000,
+  state: 150_000,
+  county: 50_000,
+  city: 20_000,
+  locality: 10_000,
+  neighborhood: 3_000,
+  poi: 250,
+  building: 100,
+  custom: 0,
+};
+
 export interface HydrateInput {
   /** MVT feature id (encoded). Optional if osmId is provided directly. */
   featureId?: number | string;
@@ -127,8 +146,27 @@ export async function hydratePlace(
   const resolved = await cachedResolve(service, osmId, input.name);
   if (!resolved) return null;
 
-  // 3. Classify + upsert, then read it back projected to lng/lat.
+  // 3. Classify, then check for an existing place this OSM element is
+  // probably just another representation of — OSM often models one real
+  // place as several elements (a city's boundary relation vs. its separate
+  // label node), and identity-per-osm-element shouldn't fork one place's
+  // chat into two just because a tap resolved a different element.
   const kind = classifyOsmTags(resolved.tags);
+  const radius = DEDUP_RADIUS_M[kind] ?? 0;
+  if (radius > 0) {
+    const { data: nearby } = await service.rpc("place_by_name_near", {
+      p_kind: kind,
+      p_name: resolved.name,
+      p_lng: resolved.lng,
+      p_lat: resolved.lat,
+      p_radius_m: radius,
+    });
+    const aliasOf = ((nearby ?? []) as PlaceReaderRow[])[0];
+    if (aliasOf) return readerToPlace(aliasOf, "overpass");
+  }
+
+  // 4. No existing alias — upsert this element as its own place, then read
+  // it back projected to lng/lat.
   const { error } = await service.rpc("hydrate_place", {
     p_osm_type: resolved.osm_type,
     p_osm_id: resolved.osm_id,

@@ -64,7 +64,7 @@ export default function MapView() {
     setPendingPin(null);
     setSelected(null);
     setLoading(true);
-    setFlyTo({ lng: result.lng, lat: result.lat, token: ++flyToken.current });
+    setFlyTo({ lng: result.lng, lat: result.lat, zoom: result.zoom, token: ++flyToken.current });
     try {
       const res = await fetch("/api/geo/hydrate", {
         method: "POST",

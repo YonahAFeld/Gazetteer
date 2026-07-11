@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import maplibregl, {
   type Map as MapLibreMap,
   type StyleSpecification,
@@ -60,6 +60,9 @@ export interface TapTarget {
 export interface FlyToTarget {
   lng: number;
   lat: number;
+  /** A city's label chip disappears if you fly in street-close, so the
+   * caller picks a zoom appropriate to what's being flown to. */
+  zoom: number;
   /** Bumped by the caller on every request so repeat flights to the same spot still fire. */
   token: number;
 }
@@ -413,19 +416,13 @@ export default function MapCanvas({
     };
   }, [onTapFeature, onLongPress]);
 
-  // Search selects a place that may be off-screen; fly the camera there. Keyed
-  // by `token` (bumped by the caller) so re-selecting the same result still flies.
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !flyTo) return;
-    map.flyTo({ center: [flyTo.lng, flyTo.lat], zoom: Math.max(map.getZoom(), 14) });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [flyTo?.token]);
-
   // Reflect the current selection onto the map: the magenta `selected`
   // feature-state on the tapped place's chip (→ magenta outline + text), and a
   // fallback dot marker for selected places that have no chip (POIs, custom pins).
-  useEffect(() => {
+  // Pulled out to a stable callback so the flyTo effect below can re-run it
+  // once the camera actually arrives (a search result's destination tiles may
+  // not be rendered yet the instant `selected` changes).
+  const applyChipReconciliation = useCallback(() => {
     const map = mapRef.current;
     if (!map) return;
 
@@ -436,15 +433,26 @@ export default function MapCanvas({
       let onChip = false;
       if (selected && selected.osm_id != null) {
         // Reconcile the chip highlight against the resolved place (also covers
-        // deep links, where there was no optimistic tap to set it).
-        const matches = map
+        // deep links and search selections, where there was no optimistic tap
+        // to set it).
+        const candidates = map
           .queryRenderedFeatures()
-          .filter(
+          .filter((f) => f.id != null && SELECTABLE_SOURCE_LAYERS.has(f.sourceLayer ?? ""));
+        // Prefer an exact OSM-identity match (the common tap case).
+        let matches = candidates.filter((f) => Math.floor(Number(f.id) / 10) === selected.osm_id);
+        if (matches.length === 0) {
+          // OSM often renders one real place from a DIFFERENT element than the
+          // one hydration resolved to (e.g. a city's boundary relation vs. its
+          // separate label node — the same duplicate-identity issue the
+          // hydration dedup handles server-side). Fall back to the visible
+          // chip with the same name — it's the same place either way.
+          const wanted = selected.name.trim().toLowerCase();
+          matches = candidates.filter(
             (f) =>
-              f.id != null &&
-              SELECTABLE_SOURCE_LAYERS.has(f.sourceLayer ?? "") &&
-              Math.floor(Number(f.id) / 10) === selected.osm_id
+              typeof f.properties?.name === "string" &&
+              f.properties.name.trim().toLowerCase() === wanted
           );
+        }
         const first = matches[0];
         if (first?.sourceLayer && first.id != null) {
           moveSelectedState(map, selectedFeatRef, {
@@ -480,6 +488,32 @@ export default function MapCanvas({
     if (readyRef.current) apply();
     else map.once("load", apply);
   }, [selected, loading]);
+
+  useEffect(() => {
+    applyChipReconciliation();
+  }, [applyChipReconciliation]);
+
+  // Search selects a place that may be off-screen; fly the camera there, then
+  // re-run chip reconciliation once the camera actually arrives — the
+  // destination's tiles (and its chip) may not be rendered yet the instant
+  // `selected` changes. Keyed by `token` (bumped by the caller) so re-selecting
+  // the same result still flies.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !flyTo) return;
+    map.flyTo({ center: [flyTo.lng, flyTo.lat], zoom: flyTo.zoom });
+    // "idle" (not "moveend") — moveend only means the camera animation
+    // finished, but the destination's vector tiles may still be loading, so
+    // queryRenderedFeatures() right then can still only see the old tiles.
+    // idle fires once the render loop has nothing left to paint — but a slow
+    // tile fetch can still be in flight at that exact instant, so retry once
+    // more shortly after as a safety net against that race.
+    map.once("idle", () => {
+      applyChipReconciliation();
+      setTimeout(applyChipReconciliation, 600);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [flyTo?.token]);
 
   return <div ref={containerRef} className="h-full w-full" />;
 }
