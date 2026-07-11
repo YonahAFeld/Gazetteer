@@ -95,6 +95,37 @@ function pickFeature(features: MapGeoJSONFeature[]): MapGeoJSONFeature | null {
   return named[0];
 }
 
+// World view — the fallback when geolocation is denied, unavailable, or slow.
+const WORLD_CENTER: [number, number] = [0, 20];
+const WORLD_ZOOM = 2;
+// "Neighborhood/city" zoom for a resolved user location (SPEC.md's browse-by-
+// panning premise still holds — this just picks a friendlier starting point).
+const LOCATED_ZOOM = 13;
+const GEOLOCATE_TIMEOUT_MS = 6000;
+
+/** Best-effort one-shot geolocation with a hard timeout; never rejects. */
+function getInitialView(): Promise<{ center: [number, number]; zoom: number }> {
+  if (typeof navigator === "undefined" || !navigator.geolocation) {
+    return Promise.resolve({ center: WORLD_CENTER, zoom: WORLD_ZOOM });
+  }
+  return new Promise((resolve) => {
+    let settled = false;
+    const done = (view: { center: [number, number]; zoom: number }) => {
+      if (settled) return;
+      settled = true;
+      resolve(view);
+    };
+    navigator.geolocation.getCurrentPosition(
+      (pos) => done({ center: [pos.coords.longitude, pos.coords.latitude], zoom: LOCATED_ZOOM }),
+      () => done({ center: WORLD_CENTER, zoom: WORLD_ZOOM }),
+      { enableHighAccuracy: false, timeout: GEOLOCATE_TIMEOUT_MS, maximumAge: 5 * 60 * 1000 }
+    );
+    // Belt-and-suspenders: some browsers don't honor the `timeout` option
+    // reliably while the permission prompt is pending.
+    setTimeout(() => done({ center: WORLD_CENTER, zoom: WORLD_ZOOM }), GEOLOCATE_TIMEOUT_MS + 500);
+  });
+}
+
 export default function MapCanvas({
   selected,
   loading,
@@ -115,20 +146,27 @@ export default function MapCanvas({
     let cancelled = false;
 
     async function init() {
-      let style: StyleSpecification | string = STYLE_URL;
-      try {
-        const res = await fetch(STYLE_URL);
-        if (res.ok) style = surveyStyle((await res.json()) as StyleSpecification);
-      } catch {
-        /* fall back to the raw URL so the map still renders */
-      }
+      const [styleResult, initialView] = await Promise.all([
+        (async () => {
+          let style: StyleSpecification | string = STYLE_URL;
+          try {
+            const res = await fetch(STYLE_URL);
+            if (res.ok) style = surveyStyle((await res.json()) as StyleSpecification);
+          } catch {
+            /* fall back to the raw URL so the map still renders */
+          }
+          return style;
+        })(),
+        getInitialView(),
+      ]);
+      const style = styleResult;
       if (cancelled || !container) return;
 
       const map = new maplibregl.Map({
         container,
         style,
-        center: [0, 20],
-        zoom: 2,
+        center: initialView.center,
+        zoom: initialView.zoom,
         attributionControl: { compact: true },
         minZoom: 1,
         maxZoom: 19,
