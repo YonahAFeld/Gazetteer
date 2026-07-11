@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import MapCanvas, { type TapTarget } from "./MapCanvas";
 import PlaceSheet, { type PendingPin } from "@/components/place/PlaceSheet";
+import InfoControl from "@/components/onboarding/InfoControl";
+import FirstVisitHint from "@/components/onboarding/FirstVisitHint";
 import { createClient } from "@/lib/supabase/client";
 import type { Place } from "@/lib/geo/types";
 
@@ -102,6 +104,8 @@ export default function MapView() {
         onClose={onClose}
         onCreatePin={onCreatePin}
       />
+      <InfoControl />
+      <FirstVisitHint dismissTrigger={selected !== null || pendingPin !== null} />
     </>
   );
 }
