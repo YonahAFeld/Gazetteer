@@ -41,7 +41,7 @@ export default function FirstVisitHint({ dismissTrigger }: FirstVisitHintProps) 
   if (!visible) return null;
 
   return (
-    <div className="pointer-events-auto absolute left-1/2 top-3 z-10 w-[92%] max-w-sm -translate-x-1/2 font-sans">
+    <div className="pointer-events-auto absolute left-1/2 top-20 z-10 w-[92%] max-w-sm -translate-x-1/2 font-sans">
       <div className="flex items-start gap-2 border border-ink bg-paper p-2.5 shadow-[2px_2px_0_0_var(--ink)]">
         <p className="text-sm text-ink">
           Tap any place on the map — a café, a park, a neighborhood — to join its chats.
