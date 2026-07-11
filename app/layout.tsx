@@ -20,9 +20,15 @@ const plexMono = IBM_Plex_Mono({
 });
 
 export const metadata: Metadata = {
+  // Without this, Next resolves the root opengraph-image against
+  // localhost at build time — the share preview would 404 in production.
+  metadataBase: new URL(
+    process.env.VERCEL_PROJECT_PRODUCTION_URL
+      ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
+      : "http://localhost:3000"
+  ),
   title: "Gazetteer",
-  description:
-    "An open world map where every place — café, block, neighborhood, city, country — is a container you can open.",
+  description: "Open source. Channels for every place. Open the map, select a place, join conversations.",
 };
 
 export default function RootLayout({

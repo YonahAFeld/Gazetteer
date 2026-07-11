@@ -131,8 +131,15 @@ function SignInPanel({
   const [status, setStatus] = useState<"idle" | "sending" | "sent" | "error">("idle");
   const [message, setMessage] = useState("");
 
+  // Send people back to the exact place/channel they were on — not just the
+  // bare map — after they finish signing in. `pathname` already reflects that
+  // (e.g. `/p/[placeId]/[channelSlug]`) thanks to the shareable-link routing.
   const redirectTo =
-    typeof window !== "undefined" ? `${window.location.origin}/auth/callback` : undefined;
+    typeof window !== "undefined"
+      ? `${window.location.origin}/auth/callback?next=${encodeURIComponent(
+          window.location.pathname
+        )}`
+      : undefined;
 
   async function sendMagicLink(e: React.FormEvent) {
     e.preventDefault();

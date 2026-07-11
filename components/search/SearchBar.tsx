@@ -91,7 +91,7 @@ export default function SearchBar({ onSelect }: SearchBarProps) {
   }
 
   return (
-    <div className="pointer-events-auto absolute left-1/2 top-4 z-20 w-[92%] max-w-md -translate-x-1/2 font-sans md:max-w-[min(28rem,calc(100vw-340px))]">
+    <div className="pointer-events-auto absolute left-1/2 top-16 z-20 w-[92%] max-w-md -translate-x-1/2 font-sans md:top-4 md:max-w-[min(28rem,calc(100vw-340px))]">
       <div className="overflow-hidden rounded-3xl border border-contour bg-paper shadow-[0_4px_20px_rgba(26,26,24,0.18)]">
         <form onSubmit={submit} className="flex items-center gap-2.5 px-4 py-3">
           <SearchIcon className="h-4 w-4 shrink-0 text-contour" />
