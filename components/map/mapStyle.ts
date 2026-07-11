@@ -51,6 +51,7 @@ const THEME: MapTheme = {
 
 const PAPER = THEME.background; // background + label halos
 const WATER = THEME.hover; // hover/link color used by the hover affordance
+const MAGENTA = "#C2187A"; // same accent as the selection chip / app UI
 const COLOR_PAINT_PROPS = [
   "background-color",
   "fill-color",
@@ -314,8 +315,16 @@ function applyChips(style: StyleSpecification): void {
     // one style property MapLibre doesn't have for symbol text is underline,
     // so this is the affordance that's actually achievable on canvas-rendered
     // labels (vs. the DOM-rendered search results, which get a real underline).
+    // `format` (not `concat`) so the chevron gets its own color/scale — a
+    // same-size, same-color arrow read as part of the name, not an accent.
     if (layout["text-field"]) {
-      layout["text-field"] = ["concat", layout["text-field"], " ›"];
+      layout["text-field"] = [
+        "format",
+        layout["text-field"],
+        {},
+        " ›",
+        { "text-color": MAGENTA, "font-scale": 1.2 },
+      ];
     }
     // Extra collision clearance: large polygons (parks especially) can place
     // their label several times across the tiles they span without any two
