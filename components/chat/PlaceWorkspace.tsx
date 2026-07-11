@@ -185,6 +185,7 @@ export default function PlaceWorkspace({ placeId }: { placeId: string }) {
             onReact={react}
             onEdit={edit}
             onDelete={remove}
+            onMessageUser={active?.type === "channel" ? messageUser : undefined}
           />
         )}
       </div>

@@ -17,6 +17,7 @@ interface ThreadPanelProps {
   onReact: (id: string, emoji: string) => void;
   onEdit: (id: string, body: string) => void;
   onDelete: (id: string, threadRootId?: string | null) => void;
+  onMessageUser?: (authorId: string, message: ChatMessage) => void;
 }
 
 export default function ThreadPanel({
@@ -30,6 +31,7 @@ export default function ThreadPanel({
   onReact,
   onEdit,
   onDelete,
+  onMessageUser,
 }: ThreadPanelProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -57,6 +59,7 @@ export default function ThreadPanel({
             onReact={onReact}
             onEdit={onEdit}
             onDelete={onDelete}
+            onMessageUser={onMessageUser}
           />
         </div>
         <div className="flex items-center gap-2 px-1">
@@ -79,6 +82,7 @@ export default function ThreadPanel({
             onReact={onReact}
             onEdit={onEdit}
             onDelete={onDelete}
+            onMessageUser={onMessageUser}
           />
         )}
       </div>
