@@ -310,6 +310,13 @@ function applyChips(style: StyleSpecification): void {
     layout["icon-optional"] = true; // if the image is missing, text still shows
     layout["icon-allow-overlap"] = false;
     layout["text-anchor"] = "center";
+    // A trailing chevron on the chip's own text signals "tap to open" — the
+    // one style property MapLibre doesn't have for symbol text is underline,
+    // so this is the affordance that's actually achievable on canvas-rendered
+    // labels (vs. the DOM-rendered search results, which get a real underline).
+    if (layout["text-field"]) {
+      layout["text-field"] = ["concat", layout["text-field"], " ›"];
+    }
     // Extra collision clearance: large polygons (parks especially) can place
     // their label several times across the tiles they span without any two
     // instances literally overlapping in screen space, so allow-overlap:false
