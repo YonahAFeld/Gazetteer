@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { Channel, DmThread, Parent } from "@/lib/chat/types";
+import Avatar from "@/components/shared/Avatar";
 
 interface PlaceRailProps {
   channels: Channel[];
@@ -113,7 +114,7 @@ export default function PlaceRail({
                     }`}
                   >
                     {d.unread && !on && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-magenta" />}
-                    <span className={`h-1.5 w-1.5 shrink-0 rounded-full border border-contour`} />
+                    <Avatar url={d.other_avatar_url} handle={d.other_handle} size={16} />
                     <span className={`truncate ${d.unread && !on ? "font-semibold" : ""}`}>
                       {d.other_handle ? `@${d.other_handle}` : "someone"}
                     </span>

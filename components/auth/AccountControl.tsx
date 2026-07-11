@@ -1,8 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
+import { uploadAvatar } from "@/lib/avatar/upload";
+import Avatar from "@/components/shared/Avatar";
 
 type Phase = "loading" | "signed-out" | "need-handle" | "ready";
 
@@ -13,6 +15,7 @@ export default function AccountControl() {
   const [phase, setPhase] = useState<Phase>("loading");
   const [user, setUser] = useState<User | null>(null);
   const [handle, setHandle] = useState<string | null>(null);
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
 
   // Resolve the profile for a signed-in user to decide handle-claim vs ready.
@@ -20,11 +23,12 @@ export default function AccountControl() {
     async (u: User) => {
       const { data } = await supabase
         .from("profiles")
-        .select("handle")
+        .select("handle, avatar_url")
         .eq("id", u.id)
         .maybeSingle();
       if (data?.handle) {
         setHandle(data.handle);
+        setAvatarUrl(data.avatar_url ?? null);
         setPhase("ready");
       } else {
         setPhase("need-handle");
@@ -53,6 +57,7 @@ export default function AccountControl() {
       } else {
         setUser(null);
         setHandle(null);
+        setAvatarUrl(null);
         setPhase("signed-out");
       }
     });
@@ -93,8 +98,15 @@ export default function AccountControl() {
         />
       )}
 
-      {phase === "ready" && handle && (
-        <AccountBadge handle={handle} onSignOut={() => supabase.auth.signOut()} />
+      {phase === "ready" && handle && user && (
+        <AccountBadge
+          supabase={supabase}
+          userId={user.id}
+          handle={handle}
+          avatarUrl={avatarUrl}
+          onAvatarChange={setAvatarUrl}
+          onSignOut={() => supabase.auth.signOut()}
+        />
       )}
     </div>
   );
@@ -264,9 +276,54 @@ function HandleClaim({
   );
 }
 
-function AccountBadge({ handle, onSignOut }: { handle: string; onSignOut: () => void }) {
+function AccountBadge({
+  supabase,
+  userId,
+  handle,
+  avatarUrl,
+  onAvatarChange,
+  onSignOut,
+}: {
+  supabase: ReturnType<typeof createClient>;
+  userId: string;
+  handle: string;
+  avatarUrl: string | null;
+  onAvatarChange: (url: string | null) => void;
+  onSignOut: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+
+  if (editing) {
+    return (
+      <AvatarEditPanel
+        supabase={supabase}
+        userId={userId}
+        handle={handle}
+        avatarUrl={avatarUrl}
+        onSaved={(url) => {
+          onAvatarChange(url);
+          setEditing(false);
+        }}
+        onClose={() => setEditing(false)}
+      />
+    );
+  }
+
   return (
     <div className="flex items-center gap-2 border border-ink bg-paper px-3 py-2">
+      <button
+        onClick={() => setEditing(true)}
+        aria-label={avatarUrl ? "Change profile picture" : "Add profile picture"}
+        title={avatarUrl ? "Change profile picture" : "Add profile picture"}
+        className="relative shrink-0"
+      >
+        <Avatar url={avatarUrl} handle={handle} size={20} />
+        {!avatarUrl && (
+          <span className="absolute -bottom-0.5 -right-0.5 flex h-2.5 w-2.5 items-center justify-center rounded-full border border-paper bg-magenta text-[7px] leading-none text-paper">
+            +
+          </span>
+        )}
+      </button>
       <span className="font-mono text-sm text-ink">@{handle}</span>
       <span className="h-4 w-px bg-contour" />
       <button
@@ -275,6 +332,97 @@ function AccountBadge({ handle, onSignOut }: { handle: string; onSignOut: () => 
       >
         Sign out
       </button>
+    </div>
+  );
+}
+
+function AvatarEditPanel({
+  supabase,
+  userId,
+  handle,
+  avatarUrl,
+  onSaved,
+  onClose,
+}: {
+  supabase: ReturnType<typeof createClient>;
+  userId: string;
+  handle: string;
+  avatarUrl: string | null;
+  onSaved: (url: string | null) => void;
+  onClose: () => void;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [preview, setPreview] = useState(avatarUrl);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  async function onPick(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setBusy(true);
+    setError("");
+    try {
+      const url = await uploadAvatar(supabase, userId, file);
+      setPreview(url);
+      onSaved(url);
+    } catch (err) {
+      setError((err as { message?: string })?.message ?? "Couldn't upload that image.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onRemove() {
+    setBusy(true);
+    setError("");
+    const { error: rpcErr } = await supabase.rpc("update_avatar", { p_avatar_url: null });
+    setBusy(false);
+    if (rpcErr) {
+      setError("Couldn't remove that.");
+      return;
+    }
+    setPreview(null);
+    onSaved(null);
+  }
+
+  return (
+    <div className="w-64 border border-ink bg-paper p-3 shadow-[2px_2px_0_0_var(--ink)]">
+      <div className="mb-3 flex items-start justify-between">
+        <KindLabel>Profile picture</KindLabel>
+        <button
+          onClick={onClose}
+          aria-label="Close"
+          className="-mt-1 font-mono text-sm text-contour hover:text-ink"
+        >
+          ✕
+        </button>
+      </div>
+
+      <div className="flex items-center gap-3">
+        <Avatar url={preview} handle={handle} size={48} />
+        <div className="flex flex-col items-start gap-1.5">
+          <button
+            onClick={() => inputRef.current?.click()}
+            disabled={busy}
+            className="border border-ink bg-paper px-2 py-1 text-xs font-medium uppercase tracking-widest text-ink hover:border-2 disabled:opacity-60"
+          >
+            {busy ? "Working…" : preview ? "Change" : "Upload"}
+          </button>
+          {preview && (
+            <button
+              onClick={onRemove}
+              disabled={busy}
+              className="text-[10px] font-semibold uppercase tracking-widest text-contour hover:text-magenta disabled:opacity-60"
+            >
+              Remove
+            </button>
+          )}
+        </div>
+      </div>
+
+      <input ref={inputRef} type="file" accept="image/*" onChange={onPick} className="hidden" />
+      {error && <p className="mt-2 text-xs text-magenta">{error}</p>}
     </div>
   );
 }

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { ChatMessage } from "@/lib/chat/types";
+import Avatar from "@/components/shared/Avatar";
 import EmojiPicker from "./EmojiPicker";
 
 interface MessageRowProps {
@@ -50,7 +51,8 @@ export default function MessageRow({
       }`}
     >
       {startGroup && (
-        <div className="flex items-baseline gap-2">
+        <div className="flex items-center gap-1.5">
+          <Avatar url={message.avatar_url} handle={message.handle} size={18} />
           <span className={`text-sm font-semibold ${isOwn ? "text-magenta" : "text-ink"}`}>
             {message.handle ? `@${message.handle}` : "…"}
           </span>

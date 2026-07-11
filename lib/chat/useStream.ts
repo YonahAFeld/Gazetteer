@@ -9,6 +9,7 @@ interface Raw {
   id: string;
   author_id: string;
   handle: string | null;
+  avatar_url: string | null;
   body: string;
   created_at: string;
   edited_at: string | null;
@@ -48,7 +49,12 @@ function toggleMine(reactions: Reaction[] | undefined, emoji: string): Reaction[
  * replies and reactions ride that same subscription (SPEC §4), so opening a
  * thread never opens a second socket.
  */
-export function useStream(parent: Parent | null, userId: string | null, handle: string | null) {
+export function useStream(
+  parent: Parent | null,
+  userId: string | null,
+  handle: string | null,
+  avatarUrl: string | null = null
+) {
   const [supabase] = useState(() => createClient());
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [threads, setThreads] = useState<Record<string, ChatMessage[]>>({});
@@ -58,7 +64,7 @@ export function useStream(parent: Parent | null, userId: string | null, handle: 
   const loading = !!parent && loadedFor !== parent.id;
 
   const channelsRef = useRef<RealtimeChannel[]>([]);
-  const handleCache = useRef<Map<string, string>>(new Map());
+  const profileCache = useRef<Map<string, { handle: string; avatar_url: string | null }>>(new Map());
 
   const readerFn = parent?.type === "dm" ? "dm_messages" : "channel_messages";
   const idArg = parent?.type === "dm" ? "p_thread_id" : "p_channel_id";
@@ -80,22 +86,25 @@ export function useStream(parent: Parent | null, userId: string | null, handle: 
     });
   }, []);
 
-  const resolveHandle = useCallback(
+  const resolveProfile = useCallback(
     async (authorId: string) => {
-      if (handleCache.current.has(authorId)) return;
+      if (profileCache.current.has(authorId)) return;
       const { data } = await supabase
         .from("profiles")
-        .select("handle")
+        .select("handle, avatar_url")
         .eq("id", authorId)
         .maybeSingle();
       if (!data?.handle) return;
-      handleCache.current.set(authorId, data.handle);
+      profileCache.current.set(authorId, { handle: data.handle, avatar_url: data.avatar_url ?? null });
       const h = data.handle;
-      setMessages((prev) => prev.map((m) => (m.author_id === authorId && !m.handle ? { ...m, handle: h } : m)));
+      const a = data.avatar_url ?? null;
+      setMessages((prev) =>
+        prev.map((m) => (m.author_id === authorId && !m.handle ? { ...m, handle: h, avatar_url: a } : m))
+      );
       setThreads((prev) => {
         const next: Record<string, ChatMessage[]> = {};
         for (const [root, arr] of Object.entries(prev)) {
-          next[root] = arr.map((m) => (m.author_id === authorId && !m.handle ? { ...m, handle: h } : m));
+          next[root] = arr.map((m) => (m.author_id === authorId && !m.handle ? { ...m, handle: h, avatar_url: a } : m));
         }
         return next;
       });
@@ -117,7 +126,9 @@ export function useStream(parent: Parent | null, userId: string | null, handle: 
       const { data } = await supabase.rpc(readerFn, { [idArg]: parent.id });
       if (!active) return;
       const list = ((data ?? []) as Raw[]).slice().reverse(); // oldest → newest
-      for (const m of list) if (m.handle) handleCache.current.set(m.author_id, m.handle);
+      for (const m of list) {
+        if (m.handle) profileCache.current.set(m.author_id, { handle: m.handle, avatar_url: m.avatar_url });
+      }
       setMessages(list);
       setThreads({});
       setLoadedFor(parent.id);
@@ -140,10 +151,12 @@ export function useStream(parent: Parent | null, userId: string | null, handle: 
             created_at: string;
             thread_root_id: string | null;
           };
+          const cached = profileCache.current.get(m.author_id);
           const row: ChatMessage = {
             id: m.id,
             author_id: m.author_id,
-            handle: handleCache.current.get(m.author_id) ?? null,
+            handle: cached?.handle ?? null,
+            avatar_url: cached?.avatar_url ?? null,
             body: m.body,
             created_at: m.created_at,
             thread_root_id: m.thread_root_id,
@@ -166,7 +179,7 @@ export function useStream(parent: Parent | null, userId: string | null, handle: 
           } else {
             setMessages((prev) => (prev.some((x) => x.id === m.id) ? prev : [...prev, { ...row, reply_count: 0 }]));
           }
-          void resolveHandle(m.author_id);
+          void resolveProfile(m.author_id);
           if (m.author_id !== userId) markRead();
         }
       )
@@ -225,6 +238,7 @@ export function useStream(parent: Parent | null, userId: string | null, handle: 
         id: tempId,
         author_id: userId,
         handle,
+        avatar_url: avatarUrl,
         body: text,
         created_at: new Date().toISOString(),
         thread_root_id: threadRootId ?? null,
@@ -261,7 +275,19 @@ export function useStream(parent: Parent | null, userId: string | null, handle: 
         const without = arr.filter((m) => m.id !== tempId);
         return without.some((m) => m.id === real.id)
           ? without
-          : [...without, { ...optimistic, id: real.id, created_at: real.created_at, pending: false }];
+          : [
+              ...without,
+              {
+                ...optimistic,
+                id: real.id,
+                created_at: real.created_at,
+                // Prefer the server's copy — the optimistic one can be stale
+                // if the avatar changed between mount and this send.
+                handle: real.handle,
+                avatar_url: real.avatar_url,
+                pending: false,
+              },
+            ];
       };
       if (threadRootId) {
         setThreads((prev) => ({ ...prev, [threadRootId]: reconcile(prev[threadRootId] ?? []) }));
@@ -269,7 +295,7 @@ export function useStream(parent: Parent | null, userId: string | null, handle: 
         setMessages(reconcile);
       }
     },
-    [parent, userId, handle, supabase, patch]
+    [parent, userId, handle, avatarUrl, supabase, patch]
   );
 
   const react = useCallback(
@@ -320,7 +346,9 @@ export function useStream(parent: Parent | null, userId: string | null, handle: 
     async (rootId: string) => {
       const { data } = await supabase.rpc("thread_messages", { p_root_id: rootId });
       const list = (data ?? []) as Raw[];
-      for (const m of list) if (m.handle) handleCache.current.set(m.author_id, m.handle);
+      for (const m of list) {
+        if (m.handle) profileCache.current.set(m.author_id, { handle: m.handle, avatar_url: m.avatar_url });
+      }
       setThreads((prev) => ({ ...prev, [rootId]: list }));
     },
     [supabase]

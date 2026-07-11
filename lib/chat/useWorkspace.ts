@@ -68,13 +68,18 @@ export function useWorkspace(placeId: string | null, isAuthed: boolean) {
         p_other: otherId,
       });
       if (error) throw error;
-      const row = (data as { thread_id: string; other_id: string; other_handle: string | null }[] | null)?.[0];
+      const row = (
+        data as
+          | { thread_id: string; other_id: string; other_handle: string | null; other_avatar_url: string | null }[]
+          | null
+      )?.[0];
       await refresh();
       if (!row) return null;
       return {
         thread_id: row.thread_id,
         other_id: row.other_id,
         other_handle: row.other_handle,
+        other_avatar_url: row.other_avatar_url,
         unread: false,
         last_at: null,
       };

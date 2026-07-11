@@ -17,7 +17,7 @@ import ThreadPanel from "./ThreadPanel";
  */
 export default function PlaceWorkspace({ placeId }: { placeId: string }) {
   const identity = useIdentity();
-  const { userId, handle, isAuthed, canPost } = identity;
+  const { userId, handle, avatarUrl, isAuthed, canPost } = identity;
   const workspace = useWorkspace(placeId, isAuthed);
   const { channels, dms, loading: railLoading, refresh, markReadLocal, createChannel, openDm } = workspace;
 
@@ -25,7 +25,7 @@ export default function PlaceWorkspace({ placeId }: { placeId: string }) {
   const [threadRootId, setThreadRootId] = useState<string | null>(null);
   const [actionError, setActionError] = useState("");
 
-  const stream = useStream(active, userId, handle);
+  const stream = useStream(active, userId, handle, avatarUrl);
   const { messages, threads, loading: streamLoading, send, react, edit, remove, loadThread } = stream;
 
   // Desktop opens #general by default; mobile starts on the rail. One-time,
