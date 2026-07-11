@@ -58,28 +58,26 @@ function AboutPanel({ onClose }: { onClose: () => void }) {
       </div>
 
       <h2 className="font-display text-2xl italic leading-tight text-ink">Gazetteer</h2>
-      <p className="mt-1 text-sm text-ink">
-        Every place — a café, a park, a neighborhood, a country — is a room you can open.
-      </p>
+      <p className="mt-1 text-sm text-ink">Open source. Channels for every place.</p>
 
       <div className="mt-3 border-t border-contour pt-2">
         <KindLabel>How it works</KindLabel>
         <ul className="space-y-1.5 text-sm text-ink">
           <li className="flex gap-2">
             <span className="shrink-0 text-contour">–</span>
-            <span>Pan and zoom to browse, like any map — there&apos;s no separate search screen.</span>
+            <span>Pan, zoom and search like any map.</span>
           </li>
           <li className="flex gap-2">
             <span className="shrink-0 text-contour">–</span>
-            <span>Tap a place&apos;s name to open its chat.</span>
+            <span>Select a place to open its channels.</span>
           </li>
           <li className="flex gap-2">
             <span className="shrink-0 text-contour">–</span>
-            <span>Sign in (top-right) to post — reading is open to everyone.</span>
+            <span>Sign in to post. Reading is open to everyone.</span>
           </li>
           <li className="flex gap-2">
             <span className="shrink-0 text-contour">–</span>
-            <span>Long-press empty ground to drop your own pin.</span>
+            <span>Long-press empty ground to create your own place.</span>
           </li>
         </ul>
       </div>

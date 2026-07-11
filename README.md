@@ -1,14 +1,7 @@
 # Gazetteer
 
-An open source world map where every place, at every scale — café, block,
-neighborhood, city, country — is a container you can open. The v1 container type
-is a group chat: tap your coffee shop and read what neighbors said; tap "Los
-Angeles" in the breadcrumb and say something to the whole city, without the map
-ever leaving the screen.
-
-The map is the navigation primitive — no feed, no search-first home screen. You
-browse the world by panning and zooming, and every named thing on it (POIs *and*
-administrative areas) is selectable.
+Gazetteer is open source — channels for every place. Open the map, select a
+place, join conversations.
 
 > Working name. A *gazetteer* is literally a geographical directory of places.
 
