@@ -4,10 +4,21 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useIdentity } from "@/lib/chat/useIdentity";
 import { useWorkspace } from "@/lib/chat/useWorkspace";
 import { useStream } from "@/lib/chat/useStream";
-import type { Channel, DmThread, Parent } from "@/lib/chat/types";
+import type { ChatMessage, Channel, DmThread, Parent } from "@/lib/chat/types";
 import PlaceRail from "./PlaceRail";
 import MessageStream from "./MessageStream";
 import ThreadPanel from "./ThreadPanel";
+
+const QUOTE_SNIPPET_MAX = 120;
+
+/** A prefill for the DM composer when replying privately to a specific message. */
+function quoteDraft(message: ChatMessage): string {
+  const body = message.body.length > QUOTE_SNIPPET_MAX
+    ? `${message.body.slice(0, QUOTE_SNIPPET_MAX)}…`
+    : message.body;
+  const who = message.handle ? `@${message.handle}` : "them";
+  return `Replying to ${who}: "${body}"\n\n`;
+}
 
 /**
  * A place's chat workspace: a rail of channels + DMs, a message stream for the
@@ -24,6 +35,8 @@ export default function PlaceWorkspace({ placeId }: { placeId: string }) {
   const [active, setActive] = useState<Parent | null>(null);
   const [threadRootId, setThreadRootId] = useState<string | null>(null);
   const [actionError, setActionError] = useState("");
+  const [pendingQuote, setPendingQuote] = useState<string | undefined>(undefined);
+  const [composerNonce, setComposerNonce] = useState(0);
 
   const stream = useStream(active, userId, handle, avatarUrl);
   const { messages, threads, loading: streamLoading, send, react, edit, remove, loadThread } = stream;
@@ -75,11 +88,15 @@ export default function PlaceWorkspace({ placeId }: { placeId: string }) {
   );
 
   const messageUser = useCallback(
-    async (authorId: string) => {
+    async (authorId: string, message: ChatMessage) => {
       setActionError("");
       try {
         const dm = await openDm(authorId);
-        if (dm) selectDm(dm);
+        if (dm) {
+          setPendingQuote(quoteDraft(message));
+          setComposerNonce((n) => n + 1);
+          selectDm(dm);
+        }
       } catch (err) {
         const msg = (err as { message?: string })?.message ?? "";
         setActionError(/posted here first/.test(msg) ? "You can DM someone once you've both posted here." : "Couldn't open that DM.");
@@ -132,6 +149,7 @@ export default function PlaceWorkspace({ placeId }: { placeId: string }) {
         )}
         {active ? (
           <MessageStream
+            key={composerNonce}
             parent={active}
             messages={messages}
             loading={streamLoading}
@@ -139,6 +157,7 @@ export default function PlaceWorkspace({ placeId }: { placeId: string }) {
             canPost={canPost}
             isAuthed={isAuthed}
             memberCount={activeChannel?.member_count}
+            initialComposerText={pendingQuote}
             onBack={backToRail}
             onSend={(body) => send(body)}
             onReact={react}

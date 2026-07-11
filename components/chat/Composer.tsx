@@ -1,21 +1,35 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 interface ComposerProps {
   canPost: boolean;
   isAuthed: boolean;
   placeholder?: string;
   autoFocus?: boolean;
+  /** Prefills the draft once, at mount — e.g. a quoted excerpt when replying
+   * privately to a message. Callers force a remount (via `key`) to reapply it. */
+  initialText?: string;
   onSend: (body: string) => Promise<void>;
 }
 
 /** Shared composer for channels, DMs, and threads. Keeps anonymous users
  * read-only with an inline sign-in nudge — never a modal wall. */
-export default function Composer({ canPost, isAuthed, placeholder, autoFocus, onSend }: ComposerProps) {
-  const [text, setText] = useState("");
+export default function Composer({ canPost, isAuthed, placeholder, autoFocus, initialText, onSend }: ComposerProps) {
+  const [text, setText] = useState(() => initialText ?? "");
   const [error, setError] = useState("");
   const [sending, setSending] = useState(false);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Cursor after the quoted excerpt, not before it — so typing continues
+  // the reply rather than interrupting the quote.
+  useEffect(() => {
+    if (initialText && textareaRef.current) {
+      const len = initialText.length;
+      textareaRef.current.setSelectionRange(len, len);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   if (!canPost) {
     return (
@@ -48,6 +62,7 @@ export default function Composer({ canPost, isAuthed, placeholder, autoFocus, on
     <form onSubmit={submit} className="border-t border-contour pt-3">
       <div className="flex items-end gap-2">
         <textarea
+          ref={textareaRef}
           autoFocus={autoFocus}
           value={text}
           onChange={(e) => setText(e.target.value)}

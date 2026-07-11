@@ -15,7 +15,7 @@ interface MessageListProps {
   onOpenThread?: (id: string) => void;
   onEdit: (id: string, body: string) => void;
   onDelete: (id: string, threadRootId?: string | null) => void;
-  onMessageUser?: (authorId: string) => void;
+  onMessageUser?: (authorId: string, message: ChatMessage) => void;
 }
 
 export default function MessageList({ messages, userId, ...row }: MessageListProps) {

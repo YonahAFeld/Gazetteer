@@ -13,6 +13,7 @@ interface MessageStreamProps {
   canPost: boolean;
   isAuthed: boolean;
   memberCount?: number;
+  initialComposerText?: string;
   onBack: () => void;
   onSend: (body: string) => Promise<void>;
   onReact: (id: string, emoji: string) => void;
@@ -20,7 +21,7 @@ interface MessageStreamProps {
   onOpenThread: (id: string) => void;
   onEdit: (id: string, body: string) => void;
   onDelete: (id: string, threadRootId?: string | null) => void;
-  onMessageUser: (authorId: string) => void;
+  onMessageUser: (authorId: string, message: ChatMessage) => void;
 }
 
 export default function MessageStream({
@@ -31,6 +32,7 @@ export default function MessageStream({
   canPost,
   isAuthed,
   memberCount,
+  initialComposerText,
   onBack,
   onSend,
   onReact,
@@ -87,6 +89,8 @@ export default function MessageStream({
         canPost={canPost}
         isAuthed={isAuthed}
         placeholder={parent.type === "channel" ? `Message # ${parent.name}` : `Message @${parent.name}`}
+        initialText={initialComposerText}
+        autoFocus={!!initialComposerText}
         onSend={onSend}
       />
     </div>

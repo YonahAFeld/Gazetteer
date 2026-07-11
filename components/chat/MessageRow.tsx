@@ -16,7 +16,7 @@ interface MessageRowProps {
   onOpenThread?: (id: string) => void;
   onEdit: (id: string, body: string) => void;
   onDelete: (id: string, threadRootId?: string | null) => void;
-  onMessageUser?: (authorId: string) => void;
+  onMessageUser?: (authorId: string, message: ChatMessage) => void;
 }
 
 export default function MessageRow({
@@ -131,28 +131,29 @@ export default function MessageRow({
 
       {/* Action toolbar — kept subtly visible (no reliable hover on touch) */}
       {!editing && !message.pending && (
-        <div className="absolute right-1 top-0 flex items-center gap-2 font-mono text-[11px] text-contour/60">
+        <div className="absolute right-1 top-0 flex items-center gap-2.5 font-mono text-[13px] text-magenta/70">
           {canPost && (
             <button onClick={() => setPicking((v) => !v)} aria-label="React" className="hover:text-magenta">
               ☺
             </button>
           )}
           {canPost && context === "stream" && onReply && (
-            <button onClick={() => onReply(message.id)} aria-label="Reply in thread" className="hover:text-ink">
+            <button onClick={() => onReply(message.id)} aria-label="Reply in thread" className="hover:text-magenta">
               ↳
             </button>
           )}
           {!isOwn && onMessageUser && (
             <button
-              onClick={() => onMessageUser(message.author_id)}
-              aria-label="Message this person"
-              className="hover:text-ink"
+              onClick={() => onMessageUser(message.author_id, message)}
+              aria-label="Reply privately"
+              title="Reply privately"
+              className="hover:text-magenta"
             >
-              DM
+              <DmIcon className="h-3.25 w-3.25" />
             </button>
           )}
           {isOwn && (
-            <button onClick={() => setEditing(true)} aria-label="Edit" className="hover:text-ink">
+            <button onClick={() => setEditing(true)} aria-label="Edit" className="hover:text-magenta">
               edit
             </button>
           )}
@@ -179,6 +180,15 @@ export default function MessageRow({
         </div>
       )}
     </div>
+  );
+}
+
+function DmIcon(props: React.SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="M22 2 11 13" />
+      <path d="M22 2 15 22l-4-9-9-4Z" />
+    </svg>
   );
 }
 
