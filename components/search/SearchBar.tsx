@@ -17,6 +17,7 @@ export default function SearchBar({ onSelect }: SearchBarProps) {
   const [results, setResults] = useState<SearchResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [focused, setFocused] = useState(false);
+  const [error, setError] = useState("");
   const seq = useRef(0);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -39,10 +40,25 @@ export default function SearchBar({ onSelect }: SearchBarProps) {
     const mySeq = ++seq.current;
     const t = setTimeout(async () => {
       setLoading(true);
+      if (mySeq === seq.current) setError("");
       try {
         const res = await fetch(`/api/geo/search?q=${encodeURIComponent(q)}`);
-        const { results } = (await res.json()) as { results: SearchResult[] };
-        if (mySeq === seq.current) setResults(results);
+        const data = await res.json().catch(() => null);
+        if (mySeq !== seq.current) return;
+        if (!res.ok) {
+          setResults([]);
+          setError(res.status === 429 ? "Slow down a moment." : "Couldn't search.");
+          return;
+        }
+        // Defensive: never trust the shape of a fetch response — a malformed
+        // or error body here used to destructure to `undefined` and crash
+        // the render the moment it hit .map() (SPEC.md §5 fallout, real bug).
+        setResults(Array.isArray(data?.results) ? data.results : []);
+      } catch {
+        if (mySeq === seq.current) {
+          setResults([]);
+          setError("Couldn't search.");
+        }
       } finally {
         if (mySeq === seq.current) setLoading(false);
       }
@@ -51,18 +67,21 @@ export default function SearchBar({ onSelect }: SearchBarProps) {
   }, [q]);
 
   const visibleResults = q.length >= 2 ? results : [];
+  const visibleError = q.length >= 2 ? error : "";
   const showList = focused && q.length >= 2;
 
   function select(r: SearchResult) {
     onSelect(r);
     setQuery("");
     setResults([]);
+    setError("");
     inputRef.current?.blur();
   }
 
   function clear() {
     setQuery("");
     setResults([]);
+    setError("");
     inputRef.current?.focus();
   }
 
@@ -103,10 +122,13 @@ export default function SearchBar({ onSelect }: SearchBarProps) {
 
         {showList && (
           <ul className="max-h-72 overflow-y-auto border-t border-contour/60">
-            {loading && visibleResults.length === 0 && (
+            {loading && visibleResults.length === 0 && !visibleError && (
               <li className="px-4 py-2.5 text-sm text-contour">Searching…</li>
             )}
-            {!loading && visibleResults.length === 0 && (
+            {visibleError && visibleResults.length === 0 && (
+              <li className="px-4 py-2.5 text-sm text-magenta">{visibleError}</li>
+            )}
+            {!loading && !visibleError && visibleResults.length === 0 && (
               <li className="px-4 py-2.5 text-sm text-contour">No places found.</li>
             )}
             {visibleResults.map((r) => (
