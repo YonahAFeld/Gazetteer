@@ -298,7 +298,7 @@ function applyChips(style: StyleSpecification): void {
   ];
   for (const { id, floor, bold } of chips) {
     const layer = style.layers.find((l) => l.id === id) as
-      | { layout?: Record<string, unknown>; minzoom?: number }
+      | { layout?: Record<string, unknown>; paint?: Record<string, unknown>; minzoom?: number }
       | undefined;
     if (!layer) continue;
     const layout = (layer.layout ??= {});
@@ -310,6 +310,12 @@ function applyChips(style: StyleSpecification): void {
     layout["icon-optional"] = true; // if the image is missing, text still shows
     layout["icon-allow-overlap"] = false;
     layout["text-anchor"] = "center";
+    // Extra collision clearance: large polygons (parks especially) can place
+    // their label several times across the tiles they span without any two
+    // instances literally overlapping in screen space, so allow-overlap:false
+    // alone doesn't suppress the near-duplicates. Wider padding makes the
+    // collision index treat nearby copies as conflicting too.
+    layout["text-padding"] = 20;
     if (bold) layout["text-font"] = ["Noto Sans Bold"];
     delete layout["text-offset"];
     delete layout["text-variable-anchor"];
@@ -320,11 +326,17 @@ function applyChips(style: StyleSpecification): void {
     delete layout["icon-anchor"];
     delete layout["icon-offset"];
     if (floor) layer.minzoom = Math.max(layer.minzoom ?? 0, floor);
+
+    // Suppress the base label while MapCanvas has marked it (or one of its
+    // same-name duplicates) as the current selection — the independent
+    // "selection-chip" overlay is showing a clean highlighted copy instead,
+    // so seeing this base instance too would look like an unrelated,
+    // unselected duplicate of the same place sitting right next to it.
+    const paint = (layer.paint ??= {});
+    const suppressed = ["case", ["boolean", ["feature-state", "selected"], false], 0, 1];
+    paint["icon-opacity"] = suppressed;
+    paint["text-opacity"] = suppressed;
   }
-  // Selection highlight is deliberately NOT a per-chip-kind feature-state
-  // overlay here — see MapCanvas's single "selection-chip" layer, which is
-  // positioned at one exact coordinate instead of tied to a (possibly
-  // multiply-rendered) tile feature id.
 }
 
 const INK = "#1A1A18";
